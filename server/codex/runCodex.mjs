@@ -20,7 +20,7 @@ function shouldPassModel(modelName) {
   return true;
 }
 
-function buildArgs({ prompt, modelName, outputPath }) {
+function buildArgs({ modelName, outputPath }) {
   const args = [
     "exec",
     "-C",
@@ -35,12 +35,12 @@ function buildArgs({ prompt, modelName, outputPath }) {
     args.push("-m", String(modelName).trim());
   }
 
-  args.push(prompt);
+  args.push("-");
   return args;
 }
 
 function commandPreview(args) {
-  const safeArgs = args.slice(0, -1).concat("[prompt]");
+  const safeArgs = args.slice(0, -1).concat("- [stdin]");
   return ["codex", ...safeArgs].join(" ");
 }
 
@@ -48,7 +48,7 @@ export async function runCodex({ prompt, modelName }) {
   const codexPath = resolveCodexCommand();
   const workDir = await mkdtemp(path.join(tmpdir(), "xhs-g4-codex-"));
   const outputPath = path.join(workDir, "last-message.txt");
-  const args = buildArgs({ prompt, modelName, outputPath });
+  const args = buildArgs({ modelName, outputPath });
   const startedAt = Date.now();
 
   try {
@@ -56,13 +56,15 @@ export async function runCodex({ prompt, modelName }) {
       const child = spawn(codexPath, args, {
         cwd: repoRoot,
         env: process.env,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
         shell: false,
       });
 
       let stdout = "";
       let stderr = "";
       let settled = false;
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
 
       const timer = setTimeout(() => {
         if (settled) return;
@@ -72,11 +74,11 @@ export async function runCodex({ prompt, modelName }) {
       }, TIMEOUT_MS);
 
       child.stdout.on("data", (chunk) => {
-        stdout += chunk.toString("utf8");
+        stdout += chunk;
       });
 
       child.stderr.on("data", (chunk) => {
-        stderr += chunk.toString("utf8");
+        stderr += chunk;
       });
 
       child.on("error", (error) => {
@@ -129,10 +131,17 @@ export async function runCodex({ prompt, modelName }) {
           stdout: stdout.trim(),
         });
       });
+      child.stdin.on("error", () => {
+        if (settled) return;
+        settled = true; clearTimeout(timer); child.kill("SIGTERM");
+        reject(new CodexApiError("CODEX_INPUT_FAILED", "Codex CLI 未能接收完整素材，请检查 CLI 状态后重试。", 502));
+      });
+      child.stdin.end(prompt, "utf8");
     });
 
     return result;
   } finally {
+    if (path.dirname(workDir) !== path.resolve(tmpdir())) throw new Error("拒绝清理临时目录以外的路径。");
     await rm(workDir, { force: true, recursive: true });
   }
 }

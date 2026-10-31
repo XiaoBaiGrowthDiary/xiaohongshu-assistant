@@ -247,6 +247,7 @@ function parseCloudDecision(raw, payload) {
 }
 
 export function buildCloudChatBody({ payload, modelName, baseUrl, prompt }) {
+  const outputTokens = ["drafts", "materials", "referenceAnalysis", "draftReview"].includes(payload.kind) ? 5200 : 3200;
   const body = {
     model: modelName,
     messages: [
@@ -265,11 +266,11 @@ export function buildCloudChatBody({ payload, modelName, baseUrl, prompt }) {
   if (isOfficialKimiApi(baseUrl)) {
     // Kimi families enforce different temperature values. Omitting the field
     // lets each model use its supported default instead of returning HTTP 400.
-    body.max_completion_tokens = payload.kind === "drafts" ? 5200 : 3200;
+    body.max_completion_tokens = outputTokens;
     body.response_format = { type: "json_object" };
   } else {
     body.temperature = 0.7;
-    body.max_tokens = payload.kind === "drafts" ? 5200 : 3200;
+    body.max_tokens = outputTokens;
   }
 
   return body;

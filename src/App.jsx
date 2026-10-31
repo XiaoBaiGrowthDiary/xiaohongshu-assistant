@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MaterialsPanel } from "./MaterialsPanel.jsx";
+import { ReferenceLibrary } from "./ReferenceLibrary.jsx";
+import { useWorkspace } from "./useWorkspace.js";
+import { LIMITS, contextError, draftMarkdown, fingerprint, materialKey, referenceAnalysisKey, selectedMaterials, workflowKey } from "../shared/workflow.mjs";
 import {
   requestCloudCoverImage,
   requestCloudDecision,
@@ -72,37 +76,34 @@ const defaultLocalClis = [
 
 const flowSteps = [
   { id: "input", label: "人设关键词", meta: "账号约束" },
+  { id: "materials", label: "我的素材", meta: "文字与原文" },
   { id: "research", label: "热门搜索", meta: "手动触发" },
-  { id: "rag", label: "RAG 入库", meta: "勾选确认" },
+  { id: "rag", label: "热门参考", meta: "勾选与写法" },
   { id: "topics", label: "生成选题", meta: "10 个候选" },
   { id: "drafts", label: "生成文案", meta: "5 篇草稿" },
   { id: "cover", label: "封面生成", meta: "Prompt 到图" },
 ];
 
 const generationLabels = {
+  materials: "素材整理",
+  referenceAnalysis: "热门参考写法分析",
+  draftReview: "文案素材核对",
   topics: "选题",
   drafts: "文案",
   coverPrompts: "封面 Prompt",
 };
 
 const decisionLabels = {
-  rag: "RAG 参考",
+  rag: "热门参考",
   topic: "选题",
   draft: "文案",
   coverPrompt: "封面 Prompt",
 };
 
-const sidebarProjects = [
-  { title: "夏日通勤穿搭", meta: "新版流程草稿", active: true },
-  { title: "治愈系家居好物", meta: "待补参考" },
-  { title: "露营装备红榜", meta: "选题阶段" },
-  { title: "轻便出行搭配", meta: "封面待生成" },
-];
-
 const errorMessages = {
   search: "搜索失败：请确认关键词不为空，并检查 xhs CLI 登录状态或网络状态后重试。",
-  rag: "RAG 加入失败：请先勾选至少一条搜索结果，再点击加入本地知识库。",
-  topics: "选题生成失败：请补充人设、关键词，并至少加入一条参考内容。",
+  rag: "参考加入失败：请先勾选搜索结果，再点击加入参考，或手动粘贴参考文字。",
+  topics: "选题生成失败：请补充人设、关键词，并添加个人素材或热门参考。",
   drafts: "文案生成失败：请先选择一个选题，并补充必要的撰写思路。",
   prompts: "封面 Prompt 生成失败：请先选择一篇文案。",
   image: "封面图生成失败：已保留原始 Prompt，可以检查图片模型配置后重新生成。",
@@ -316,27 +317,39 @@ function ModelConfig({
 }
 
 export function App() {
+  const workspace = useWorkspace({ persona: defaultPersona, keyword: defaultKeyword, writingBrief: defaultBrief });
+  const { field } = workspace;
   const personaRef = useRef(null);
   const keywordRef = useRef(null);
   const writingBriefRef = useRef(null);
-  const [persona, setPersona] = useStoredState("persona", defaultPersona);
-  const [keyword, setKeyword] = useStoredState("keyword", defaultKeyword);
-  const [writingBrief, setWritingBrief] = useStoredState("writingBrief", defaultBrief);
+  const [persona, setPersona] = field("persona");
+  const [keyword, setKeyword] = field("keyword");
+  const [writingBrief, setWritingBrief] = field("writingBrief");
+  const [projectTitle, setProjectTitle] = field("projectTitle");
+  const [sourceMaterials, setSourceMaterials] = field("sourceMaterials");
+  const [materialInputTitle, setMaterialInputTitle] = field("materialInputTitle");
+  const [materialInputContent, setMaterialInputContent] = field("materialInputContent");
+  const [mustInclude, setMustInclude] = field("mustInclude");
+  const [materialAnalysis, setMaterialAnalysis] = field("materialAnalysis");
+  const [summaryConfirmed, setSummaryConfirmed] = field("summaryConfirmed");
+  const [referenceAnalysis, setReferenceAnalysis] = field("referenceAnalysis");
+  const [draftReview, setDraftReview] = field("draftReview");
+  const [useReferences, setUseReferences] = field("useReferences");
+  const [includeCover, setIncludeCover] = field("includeCover");
   const [modelConfig, setModelConfig] = useStoredState("modelConfig", defaultModelConfig);
   const [localClis, setLocalClis] = useState(defaultLocalClis);
   const [cliDetectionState, setCliDetectionState] = useState("idle");
-  const [activeStep, setActiveStep] = useState("input");
-  const [searchResults, setSearchResults] = useState([]);
-  const [selectedSearchIds, setSelectedSearchIds] = useState([]);
-  const [ragItems, setRagItems] = useState([]);
-  const [topics, setTopics] = useState([]);
-  const [selectedTopicId, setSelectedTopicId] = useState(null);
-  const [drafts, setDrafts] = useState([]);
-  const [selectedDraftId, setSelectedDraftId] = useState(null);
-  const [prompts, setPrompts] = useState([]);
-  const [selectedPromptId, setSelectedPromptId] = useState(null);
-  const [coverImage, setCoverImage] = useState(null);
-  const [lastSavedAt, setLastSavedAt] = useState("");
+  const [activeStep, setActiveStep] = field("activeStep");
+  const [searchResults, setSearchResults] = field("searchResults");
+  const [selectedSearchIds, setSelectedSearchIds] = field("selectedSearchIds");
+  const [ragItems, setRagItems] = field("ragItems");
+  const [topics, setTopics] = field("topics");
+  const [selectedTopicId, setSelectedTopicId] = field("selectedTopicId");
+  const [drafts, setDrafts] = field("drafts");
+  const [selectedDraftId, setSelectedDraftId] = field("selectedDraftId");
+  const [prompts, setPrompts] = field("prompts");
+  const [selectedPromptId, setSelectedPromptId] = field("selectedPromptId");
+  const [coverImage, setCoverImage] = field("coverImage");
   const [generatingKind, setGeneratingKind] = useState("");
   const [automationRunning, setAutomationRunning] = useState(false);
   const [automationStage, setAutomationStage] = useState("");
@@ -362,21 +375,35 @@ export function App() {
     () => drafts.find((draft) => draft.id === selectedDraftId),
     [drafts, selectedDraftId],
   );
+
+  useEffect(() => {
+    document.querySelector(".workspace")?.scrollTo({ top: 0 });
+  }, [workspace.project.id]);
   const selectedPrompt = useMemo(
     () => prompts.find((prompt) => prompt.id === selectedPromptId),
     [prompts, selectedPromptId],
   );
 
+  const selectedSourceMaterials = useMemo(() => selectedMaterials(sourceMaterials), [sourceMaterials]);
+  const currentMaterialKey = useMemo(() => materialKey(sourceMaterials), [sourceMaterials]);
+  const materialAnalysisCurrent = materialAnalysis?.sourceKey === currentMaterialKey;
+  const materialSummary = materialAnalysisCurrent && summaryConfirmed ? materialAnalysis.summary : "";
+  const currentReferenceKey = useMemo(() => referenceAnalysisKey({ ragItems, sourceMaterials, persona, keyword, writingBrief, mustInclude }), [ragItems, sourceMaterials, persona, keyword, writingBrief, mustInclude]);
+  const referenceAnalysisCurrent = referenceAnalysis?.sourceKey === currentReferenceKey;
+  const currentWorkflowKey = useMemo(() => workflowKey({ persona, keyword, writingBrief, mustInclude, sourceMaterials, ragItems, materialSummary, referenceAnalysis: referenceAnalysisCurrent ? referenceAnalysis : null }), [persona, keyword, writingBrief, mustInclude, sourceMaterials, ragItems, materialSummary, referenceAnalysisCurrent, referenceAnalysis]);
+  const resultsStale = topics.some((topic) => topic.contextKey && topic.contextKey !== currentWorkflowKey) || drafts.some((draft) => (draft.contextKey && draft.contextKey !== currentWorkflowKey) || (selectedTopic && draft.topicTitle !== selectedTopic.title));
+  const currentReviewKey = fingerprint({ context: currentWorkflowKey, draft: selectedDraft });
+  const draftReviewCurrent = draftReview?.sourceKey === currentReviewKey;
+
   const progress = useMemo(() => {
     const checks = [
       persona.trim().length > 0,
       keyword.trim().length > 0,
-      searchResults.length > 0,
-      ragItems.length > 0,
+      selectedSourceMaterials.length > 0 || searchResults.length > 0,
+      selectedSourceMaterials.length > 0 || ragItems.length > 0,
       topics.length > 0 && selectedTopic,
       drafts.length > 0 && selectedDraft,
-      prompts.length > 0 && selectedPrompt,
-      Boolean(coverImage),
+      ...(includeCover ? [prompts.length > 0 && selectedPrompt, Boolean(coverImage)] : []),
     ];
 
     return Math.round((checks.filter(Boolean).length / checks.length) * 100);
@@ -392,6 +419,8 @@ export function App() {
     selectedPrompt,
     selectedTopic,
     topics.length,
+    selectedSourceMaterials.length,
+    includeCover,
   ]);
 
   const setError = (key) => {
@@ -406,7 +435,7 @@ export function App() {
     setNotice({ type: "error", text });
   };
 
-  const isBusy = Boolean(generatingKind) || automationRunning;
+  const isBusy = !workspace.ready || workspace.switching || Boolean(generatingKind) || automationRunning;
 
   const updateModelConfig = (channel, value) => {
     setModelConfig((current) => ({ ...current, [channel]: value }));
@@ -560,28 +589,42 @@ export function App() {
   };
 
   const workflowContext = (overrides = {}) => ({
-    persona: overrides.persona ?? persona,
-    keyword: overrides.keyword ?? keyword,
-    ragItems: overrides.ragItems ?? ragItems,
-    writingBrief: overrides.writingBrief ?? writingBrief,
+    persona,
+    keyword,
+    ragItems,
+    writingBrief,
+    sourceMaterials: selectedSourceMaterials,
+    mustInclude,
+    materialSummary,
+    referenceAnalysis: referenceAnalysisCurrent ? referenceAnalysis : null,
+    ...overrides,
   });
+
+  const requireContext = (context = workflowContext()) => {
+    if (materialInputContent.trim()) {
+      setCustomError("还有未加入素材的文字，请先点击「加入我的素材」，再开始生成。");
+      return false;
+    }
+    const problem = contextError(context);
+    if (problem) { setCustomError(problem); return false; }
+    return true;
+  };
 
   const requestTextItems = async (kind, payload = {}, contextOverrides = {}) => {
     const requestGeneration =
       channelConfig("text").provider === "cloud" ? requestCloudGeneration : requestLocalCliGeneration;
     const context = workflowContext(contextOverrides);
+    const problem = contextError(context);
+    if (problem) throw Object.assign(new Error(problem), { code: "BAD_REQUEST" });
     const result = await requestGeneration({
       kind,
-      persona: context.persona,
-      keyword: context.keyword,
-      ragItems: context.ragItems,
-      writingBrief: context.writingBrief,
+      ...context,
       ...requestPayloadConfig("text"),
       ...payload,
     });
 
     return {
-      items: result.items,
+      items: result.items.map((item) => ({ ...item, contextKey: workflowKey(context) })),
       routeLabel: providerLabel("text"),
       commandPreview: result.commandPreview,
       durationMs: result.durationMs,
@@ -609,10 +652,7 @@ export function App() {
 
     const result = await requestModelDecision({
       decisionKind,
-      persona: context.persona,
-      keyword: context.keyword,
-      ragItems: context.ragItems,
-      writingBrief: context.writingBrief,
+      ...context,
       options,
       ...requestPayloadConfig("text"),
       ...payload,
@@ -761,6 +801,8 @@ export function App() {
     setPrompts([]);
     setSelectedPromptId(null);
     setCoverImage(null);
+    setReferenceAnalysis(null);
+    setDraftReview(null);
   };
 
   const toggleSearchResult = (id) => {
@@ -776,20 +818,25 @@ export function App() {
     }
 
     const selectedItems = searchResults.filter((result) => selectedSearchIds.includes(result.id));
+    const nextIds = new Set([...ragItems, ...selectedItems].map((item) => item.id));
+    if (nextIds.size > LIMITS.references) {
+      setCustomError(`最多使用 ${LIMITS.references} 条热门参考，请减少勾选或移除旧参考。`);
+      return;
+    }
     setRagItems((current) => {
       const existingIds = new Set(current.map((item) => item.id));
       return [...current, ...selectedItems.filter((item) => !existingIds.has(item.id))];
     });
     setActiveStep("rag");
-    setSuccess(`已加入 ${selectedItems.length} 条参考内容到本地 RAG。`);
+    setSuccess(`已确认 ${selectedItems.length} 条热门参考，后续生成将结合这些文字学习写法。`);
   };
 
   const generateTopics = async () => {
-    if (!persona.trim() || !keyword.trim() || ragItems.length === 0) {
+    if (!persona.trim() || !keyword.trim() || (!ragItems.length && !selectedSourceMaterials.length)) {
       setError("topics");
       return;
     }
-    if (!requireTextModel()) return;
+    if (!requireTextModel() || !requireContext()) return;
 
     const result = await runTextGeneration("topics", {});
     if (!result) return;
@@ -811,13 +858,14 @@ export function App() {
       setError("drafts");
       return;
     }
-    if (!requireTextModel()) return;
+    if (!requireTextModel() || !requireContext()) return;
 
     const result = await runTextGeneration("drafts", { selectedTopic });
     if (!result) return;
     const nextDrafts = result.items;
 
     setDrafts(nextDrafts);
+    setDraftReview(null);
     setSelectedDraftId(nextDrafts[0].id);
     setPrompts([]);
     setSelectedPromptId(null);
@@ -831,7 +879,7 @@ export function App() {
       setError("prompts");
       return;
     }
-    if (!requireTextModel()) return;
+    if (!requireTextModel() || !requireContext()) return;
 
     const result = await runTextGeneration("coverPrompts", {
       selectedTopic,
@@ -907,227 +955,147 @@ export function App() {
     }
   };
 
+  const organizeMaterials = async () => {
+    if (!selectedSourceMaterials.length) { setCustomError("请先添加并勾选你的文字素材。"); return; }
+    if (!requireTextModel() || !requireContext()) return;
+    const result = await runTextGeneration("materials", {});
+    if (!result) return;
+    setMaterialAnalysis({ ...result.items[0], sourceKey: currentMaterialKey });
+    setSummaryConfirmed(false);
+    setActiveStep("materials");
+    setSuccess("素材已整理，请检查原文依据，编辑摘要后确认用于本篇。");
+  };
+
+  const analyzeReferences = async () => {
+    if (!ragItems.length) { setCustomError("请先加入热门参考。"); return; }
+    if (!requireTextModel() || !requireContext()) return;
+    const result = await runTextGeneration("referenceAnalysis", {});
+    if (result) setReferenceAnalysis({ ...result.items[0], sourceKey: currentReferenceKey });
+  };
+
+  const reviewDraft = async () => {
+    if (!selectedDraft || !selectedSourceMaterials.length) { setCustomError("请选择文案，并加入你的个人素材后再核对。"); return; }
+    if (!requireTextModel() || !requireContext()) return;
+    const result = await runTextGeneration("draftReview", { selectedDraft });
+    if (result) setDraftReview({ ...result.items[0], sourceKey: currentReviewKey });
+  };
+
   const runAutomation = async () => {
-    let currentAutomationStage = "";
-    const moveAutomationStage = (stage) => {
-      currentAutomationStage = stage;
-      setAutomationStage(stage);
-    };
+    let stage = "";
     const context = {
-      persona: (personaRef.current?.value ?? persona).trim(),
-      keyword: (keywordRef.current?.value ?? keyword).trim(),
-      writingBrief: (writingBriefRef.current?.value ?? writingBrief).trim(),
-      ragItems: [],
+      ...workflowContext(),
+      persona: personaRef.current?.value ?? persona,
+      keyword: keywordRef.current?.value ?? keyword,
+      writingBrief: writingBriefRef.current?.value ?? writingBrief,
+      ragItems: [], referenceAnalysis: null,
     };
-
-    if (!context.persona || !context.keyword || !context.writingBrief) {
-      setCustomError("自动化生成需要先填写账号人设、创作关键词和补充撰写思路。");
-      return;
+    if (!context.persona.trim() || !context.keyword.trim() || !context.writingBrief.trim()) {
+      setCustomError("自动化生成需要先填写人设、关键词和本篇创作要求。"); return;
     }
-    if (!requireTextModel() || !requireImageModel()) return;
-
+    if (!useReferences && !context.sourceMaterials.length) {
+      setCustomError("关闭热门参考时，请先添加并勾选个人文字素材。"); return;
+    }
+    if (!requireTextModel() || !requireContext(context) || (includeCover && !requireImageModel())) return;
     setAutomationRunning(true);
     resetGeneratedState();
-    setNotice({ type: "success", text: "自动化生成已开始：本次点击授权搜索、模型决策入库、生成和封面图生成。" });
-
+    setSuccess("自动化已开始：按本次选择整理素材、参考热门并创作，个人原文会保留。");
+    const move = (label) => { stage = label; setAutomationStage(label); };
+    const generate = async (kind, payload = {}) => {
+      move(generationLabels[kind]); setGeneratingKind(kind);
+      setCliStatus({ state: "running", label: providerLabel("text"), text: `正在${generationLabels[kind]}…`, commandPreview: providerPreview("text"), durationMs: null, generatedAt: "", code: "" });
+      const result = await requestTextItems(kind, payload, context);
+      setCliStatus({ state: "success", label: result.routeLabel, text: `${generationLabels[kind]}已完成。`, commandPreview: result.commandPreview, durationMs: result.durationMs, generatedAt: result.generatedAt, code: "" });
+      return result.items;
+    };
     try {
-      moveAutomationStage("搜索热门内容");
-      setGeneratingKind("search");
-      setActiveStep("research");
-      setCliStatus({
-        state: "running",
-        label: "小红书 CLI 搜索",
-        text: `自动化正在通过本机 xhs 搜索「${context.keyword}」...`,
-        commandPreview: `xhs --cookie-source none search "${context.keyword}" --sort popular --type all --page 1 --json`,
-        durationMs: null,
-        generatedAt: "",
-        code: "",
-      });
-      const searchResult = await requestXhsSearch({
-        keyword: context.keyword,
-        sort: "popular",
-        type: "all",
-        page: 1,
-      });
-      const nextSearchResults = searchResult.items;
-      if (nextSearchResults.length === 0) {
-        throw Object.assign(new Error("xhs 没有返回可用于自动化生成的热门内容。"), {
-          code: "XHS_EMPTY",
-        });
+      if (context.sourceMaterials.length && !materialAnalysisCurrent) {
+        const [analysis] = await generate("materials");
+        setMaterialAnalysis({ ...analysis, sourceKey: materialKey(context.sourceMaterials) });
+        setSummaryConfirmed(false);
       }
-      setSearchResults(nextSearchResults);
-      setCliStatus({
-        state: "success",
-        label: "小红书 CLI 搜索",
-        text: `xhs 已返回 ${nextSearchResults.length} 条热门内容，自动化将交给文案模型筛选参考。`,
-        commandPreview: searchResult.commandPreview,
-        durationMs: searchResult.durationMs,
-        generatedAt: searchResult.generatedAt,
-        code: "",
-      });
-
-      moveAutomationStage("选择并加入 RAG");
-      const ragDecision = await requestDecision("rag", nextSearchResults, context);
-      const nextSelectedSearchIds = ragDecision.selectedIds;
-      const nextRagItems = nextSearchResults.filter((item) => nextSelectedSearchIds.includes(item.id));
-      setSelectedSearchIds(nextSelectedSearchIds);
-      setRagItems(nextRagItems);
-      setActiveStep("rag");
-      context.ragItems = nextRagItems;
-
-      moveAutomationStage("生成 10 个选题");
-      setGeneratingKind("topics");
-      setCliStatus({
-        state: "running",
-        label: providerLabel("text"),
-        text: `自动化正在通过 ${providerLabel("text")} 生成选题...`,
-        commandPreview: providerPreview("text"),
-        durationMs: null,
-        generatedAt: "",
-        code: "",
-      });
-      const topicResult = await requestTextItems("topics", {}, context);
-      const nextTopics = topicResult.items;
-      setTopics(nextTopics);
-      setActiveStep("topics");
-      setCliStatus({
-        state: "success",
-        label: topicResult.routeLabel,
-        text: `${topicResult.routeLabel} 已生成 ${nextTopics.length} 条选题，自动化将选择 1 条继续。`,
-        commandPreview: topicResult.commandPreview,
-        durationMs: topicResult.durationMs,
-        generatedAt: topicResult.generatedAt,
-        code: "",
-      });
-
-      moveAutomationStage("选择选题");
+      if (useReferences) {
+        move("搜索热门内容"); setGeneratingKind("search"); setActiveStep("research");
+        const search = await requestXhsSearch({ keyword: context.keyword, sort: "popular", type: "all", page: 1 });
+        if (!search.items.length) throw Object.assign(new Error("没有找到热门参考。可以调整关键词，或关闭热门参考后使用个人素材创作。"), { code: "XHS_EMPTY" });
+        setSearchResults(search.items);
+        move("选择热门参考");
+        const decision = await requestDecision("rag", search.items, context);
+        context.ragItems = search.items.filter((item) => decision.selectedIds.includes(item.id));
+        setSelectedSearchIds(decision.selectedIds); setRagItems(context.ragItems); setActiveStep("rag");
+        const [analysis] = await generate("referenceAnalysis");
+        context.referenceAnalysis = { ...analysis, sourceKey: referenceAnalysisKey(context) };
+        setReferenceAnalysis(context.referenceAnalysis);
+      }
+      const nextTopics = await generate("topics");
+      setTopics(nextTopics); setActiveStep("topics");
+      move("选择选题");
       const topicDecision = await requestDecision("topic", nextTopics, context);
-      const nextSelectedTopic = nextTopics.find((topic) => topic.id === topicDecision.selectedIds[0]);
-      setSelectedTopicId(nextSelectedTopic.id);
-
-      moveAutomationStage("生成 5 篇文案");
-      setGeneratingKind("drafts");
-      setCliStatus({
-        state: "running",
-        label: providerLabel("text"),
-        text: `自动化正在通过 ${providerLabel("text")} 生成文案...`,
-        commandPreview: providerPreview("text"),
-        durationMs: null,
-        generatedAt: "",
-        code: "",
-      });
-      const draftResult = await requestTextItems("drafts", { selectedTopic: nextSelectedTopic }, context);
-      const nextDrafts = draftResult.items;
-      setDrafts(nextDrafts);
-      setActiveStep("drafts");
-      setCliStatus({
-        state: "success",
-        label: draftResult.routeLabel,
-        text: `${draftResult.routeLabel} 已生成 ${nextDrafts.length} 篇文案，自动化将选择 1 篇继续。`,
-        commandPreview: draftResult.commandPreview,
-        durationMs: draftResult.durationMs,
-        generatedAt: draftResult.generatedAt,
-        code: "",
-      });
-
-      moveAutomationStage("选择文案");
-      const draftDecision = await requestDecision("draft", nextDrafts, context, {
-        selectedTopic: nextSelectedTopic,
-      });
-      const nextSelectedDraft = nextDrafts.find((draft) => draft.id === draftDecision.selectedIds[0]);
-      setSelectedDraftId(nextSelectedDraft.id);
-
-      moveAutomationStage("生成 5 份封面 Prompt");
-      setGeneratingKind("coverPrompts");
-      setCliStatus({
-        state: "running",
-        label: providerLabel("text"),
-        text: `自动化正在通过 ${providerLabel("text")} 生成封面 Prompt...`,
-        commandPreview: providerPreview("text"),
-        durationMs: null,
-        generatedAt: "",
-        code: "",
-      });
-      const promptResult = await requestTextItems(
-        "coverPrompts",
-        { selectedTopic: nextSelectedTopic, selectedDraft: nextSelectedDraft },
-        context,
-      );
-      const nextPrompts = promptResult.items;
-      setPrompts(nextPrompts);
-      setActiveStep("cover");
-      setCliStatus({
-        state: "success",
-        label: promptResult.routeLabel,
-        text: `${promptResult.routeLabel} 已生成 ${nextPrompts.length} 份封面 Prompt，自动化将选择 1 份生成封面图。`,
-        commandPreview: promptResult.commandPreview,
-        durationMs: promptResult.durationMs,
-        generatedAt: promptResult.generatedAt,
-        code: "",
-      });
-
-      moveAutomationStage("选择封面 Prompt");
-      const promptDecision = await requestDecision("coverPrompt", nextPrompts, context, {
-        selectedTopic: nextSelectedTopic,
-        selectedDraft: nextSelectedDraft,
-      });
-      const nextSelectedPrompt = nextPrompts.find((prompt) => prompt.id === promptDecision.selectedIds[0]);
-      setSelectedPromptId(nextSelectedPrompt.id);
-
-      moveAutomationStage("生成封面图");
-      setGeneratingKind("coverImage");
-      const imageRouteLabel = providerLabel("image");
-      setCliStatus({
-        state: "running",
-        label: imageRouteLabel,
-        text: `自动化正在通过${imageRouteLabel}生成封面图...`,
-        commandPreview: providerPreview("image"),
-        durationMs: null,
-        generatedAt: "",
-        code: "",
-      });
-      const coverResult = await requestCoverImageResult(nextSelectedPrompt, nextSelectedDraft, context);
-      setCoverImage({
-        promptId: nextSelectedPrompt.id,
-        src: coverResult.image.src,
-        alt: coverResult.image.alt,
-        title: coverResult.image.title,
-        createdAt: nowText(),
-        generatedAt: coverResult.generatedAt,
-      });
-      setCliStatus({
-        state: "success",
-        label: imageRouteLabel,
-        text: `${imageRouteLabel}已生成封面图。`,
-        commandPreview: coverResult.commandPreview,
-        durationMs: coverResult.durationMs,
-        generatedAt: coverResult.generatedAt,
-        code: "",
-      });
-      setSuccess("自动化生成已完成：热门参考、RAG、选题、文案、封面 Prompt 和封面图均已生成并保留可见选择。");
+      const topic = nextTopics.find((item) => item.id === topicDecision.selectedIds[0]);
+      setSelectedTopicId(topic.id);
+      const nextDrafts = await generate("drafts", { selectedTopic: topic });
+      setDrafts(nextDrafts); setActiveStep("drafts");
+      move("选择文案");
+      const draftDecision = await requestDecision("draft", nextDrafts, context, { selectedTopic: topic });
+      const draft = nextDrafts.find((item) => item.id === draftDecision.selectedIds[0]);
+      setSelectedDraftId(draft.id);
+      if (context.sourceMaterials.length) {
+        const [review] = await generate("draftReview", { selectedDraft: draft });
+        setDraftReview({ ...review, sourceKey: fingerprint({ context: workflowKey(context), draft }) });
+      }
+      if (!includeCover) { setSuccess("文字创作已完成：选题、文案和核对结果已保留，草稿会自动保存。需要时可以继续生成封面。"); return; }
+      const nextPrompts = await generate("coverPrompts", { selectedTopic: topic, selectedDraft: draft });
+      setPrompts(nextPrompts); setActiveStep("cover");
+      move("选择封面方案");
+      const promptDecision = await requestDecision("coverPrompt", nextPrompts, context, { selectedTopic: topic, selectedDraft: draft });
+      const prompt = nextPrompts.find((item) => item.id === promptDecision.selectedIds[0]);
+      setSelectedPromptId(prompt.id);
+      move("生成封面图"); setGeneratingKind("coverImage");
+      const result = await requestCoverImageResult(prompt, draft, context);
+      setCoverImage({ ...result.image, promptId: prompt.id, createdAt: nowText(), generatedAt: result.generatedAt });
+      setCliStatus({ state: "success", label: providerLabel("image"), text: "封面图已生成。", commandPreview: result.commandPreview, durationMs: result.durationMs, generatedAt: result.generatedAt, code: "" });
+      setSuccess("自动化创作已完成，文字、参考和封面结果会自动保存。");
     } catch (error) {
       const message = error?.message || "自动化生成失败。";
-      setCliStatus({
-        state: "error",
-        label: currentAutomationStage ? `自动化：${currentAutomationStage}` : "自动化生成",
-        text: message,
-        commandPreview: "",
-        durationMs: null,
-        generatedAt: "",
-        code: error?.code || "AUTOMATION_FAILED",
-      });
-      setCustomError(`自动化生成中断：${message}`);
+      setCliStatus({ state: "error", label: `自动化：${stage}`, text: message, commandPreview: "", durationMs: null, generatedAt: "", code: error?.code || "AUTOMATION_FAILED" });
+      setCustomError(`自动化在「${stage}」中断：${message} 已完成内容已保留，可手动继续。`);
     } finally {
-      setAutomationRunning(false);
-      setAutomationStage("");
-      setGeneratingKind("");
+      setAutomationRunning(false); setAutomationStage(""); setGeneratingKind("");
     }
   };
 
-  const saveDraft = () => {
-    const savedAt = nowText();
-    setLastSavedAt(savedAt);
-    setSuccess(`草稿已保存到本地状态，保存时间 ${savedAt}。`);
+  const saveDraft = async () => {
+    try { const result = await workspace.save(); if (result.warning) setCustomError(result.warning); else setSuccess("草稿已写入本地草稿库，可刷新或关闭页面后继续。"); }
+    catch (error) { setCustomError(error.message); }
+  };
+
+  const switchProject = async (id) => {
+    try { await workspace.open(id); setSuccess("已打开所选草稿，素材和生成结果均已恢复。"); }
+    catch (error) { setCustomError(error.message); }
+  };
+
+  const newProject = async (reuse = false) => {
+    try { await workspace.create(reuse); setSuccess(reuse ? "已复用素材新建草稿，请填写这篇的关键词和创作要求。" : "已新建草稿，上一份内容已保存。"); }
+    catch (error) { setCustomError(error.message); }
+  };
+
+  const editDraft = (patch) => {
+    setDrafts((current) => current.map((draft) => draft.id === selectedDraftId ? { ...draft, ...patch } : draft));
+    setPrompts([]); setSelectedPromptId(null); setCoverImage(null);
+  };
+
+  const copyDraft = async () => {
+    if (!selectedDraft) return;
+    try { await navigator.clipboard.writeText(`${selectedDraft.title}\n\n${selectedDraft.body}`); setSuccess("标题与正文已复制。"); }
+    catch { setCustomError("无法访问剪贴板，请选择正文复制，或导出 Markdown。"); }
+  };
+
+  const exportDraft = () => {
+    if (!selectedDraft) return;
+    const url = URL.createObjectURL(new Blob([draftMarkdown(selectedDraft)], { type: "text/markdown;charset=utf-8" }));
+    const anchor = document.createElement("a"); anchor.href = url;
+    anchor.download = `${selectedDraft.title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").slice(0, 60) || "小红书草稿"}.md`;
+    anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setSuccess("已导出标题与正文，素材原文和模型配置不会包含在成稿中。");
   };
 
   return (
@@ -1162,10 +1130,10 @@ export function App() {
             <button
               key={step.id}
               className={activeStep === step.id ? "active" : ""}
-              onClick={() => setActiveStep(step.id)}
+              onClick={() => { setActiveStep(step.id); document.getElementById(`step-${step.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
               type="button"
             >
-              <SoftIcon tone={["pink", "yellow", "mint", "blue", "lavender", "rose"][index]}>
+              <SoftIcon tone={["pink", "mint", "yellow", "mint", "blue", "lavender", "rose"][index]}>
                 {index + 1}
               </SoftIcon>
               <span>
@@ -1179,22 +1147,22 @@ export function App() {
         <section className="project-list">
           <header>
             <h3>草稿项目</h3>
-            <button type="button" onClick={saveDraft}>保存</button>
+            <div className="project-actions"><button type="button" disabled={isBusy} onClick={() => newProject()}>新建</button><button type="button" disabled={!workspace.ready} onClick={saveDraft}>保存</button></div>
           </header>
-          {sidebarProjects.map((project) => (
-            <button key={project.title} className={project.active ? "project active" : "project"} type="button">
-              <SoftIcon tone={project.active ? "mint" : "pink"}>稿</SoftIcon>
+          {workspace.projects.map((project) => (
+            <button key={project.id} className={project.id === workspace.project.id ? "project active" : "project"} disabled={isBusy} type="button" onClick={() => switchProject(project.id)}>
+              <SoftIcon tone={project.id === workspace.project.id ? "mint" : "pink"}>稿</SoftIcon>
               <span>
                 <strong>{project.title}</strong>
-                <small>{project.meta}</small>
+                <small>{project.materialCount} 条素材 · {project.draftCount} 篇文案</small>
               </span>
             </button>
           ))}
         </section>
 
-        <button className="settings-button" type="button" onClick={() => setActiveStep("cover")}>
+        <button className="settings-button" type="button" disabled={!workspace.ready} onClick={saveDraft}>
           <SoftIcon tone="lavender">收</SoftIcon>
-          <span>{lastSavedAt ? `已保存 ${lastSavedAt}` : "保存与继续编辑"}</span>
+          <span>{workspace.status.text}</span>
         </button>
       </aside>
 
@@ -1202,17 +1170,17 @@ export function App() {
         <div className="workspace">
         <section className="overview clay-panel">
           <div className="overview-copy">
-            <StageBadge tone="mint">新版流程</StageBadge>
-            <h2>从关键词到可发布草稿</h2>
-            <p>人设、热门参考、选题、文案、封面 Prompt 和封面图支持手动逐步推进，也可以一次点击自动化生成。</p>
+            <StageBadge tone="mint">素材驱动创作</StageBadge>
+            <h2>把你的真实素材，写成好笔记</h2>
+            <p>先整理经历与观点，再参考热门写法。选题、文案和草稿都围绕你的内容展开。</p>
             <div className="metric-grid">
               <div className="metric">
-                <span>搜索结果</span>
-                <strong>{searchResults.length}</strong>
+                <span>我的素材</span>
+                <strong>{selectedSourceMaterials.length}</strong>
                 <em>条</em>
               </div>
               <div className="metric">
-                <span>RAG 参考</span>
+                <span>热门参考</span>
                 <strong>{ragItems.length}</strong>
                 <em>条</em>
               </div>
@@ -1231,12 +1199,14 @@ export function App() {
           <img className="hero-asset" src="/assets/notebook-pencil.png" alt="薄荷笔记本和粉色铅笔" />
         </section>
 
-        <section className="input-panel clay-panel mint-glow">
+        <div className={`draft-status ${workspace.status.state}`} role="status">{workspace.status.text}<span>草稿保存在当前浏览器</span></div>
+        {resultsStale ? <div className="stale-notice" role="status">素材、选题、创作要求或参考已变化。原结果已保留，请重新生成或核对后再使用。</div> : null}
+        <section id="step-input" className="input-panel clay-panel mint-glow">
           <SectionHeader
             icon="入"
             tone="mint"
-            title="账号人设与创作关键词"
-            meta="人设最多 1000 字，关键词用于搜索和生成"
+            title="这篇笔记，想写些什么"
+            meta="人设约束风格，关键词确定主题，创作要求用于所有阶段"
             action={
               <div className="section-actions">
                 <button
@@ -1258,12 +1228,14 @@ export function App() {
               </div>
             }
           />
+          <label className="field project-title"><span>草稿名称</span><input value={projectTitle} onChange={(event) => setProjectTitle(event.target.value)} maxLength={120} disabled={isBusy} placeholder="可留空，使用创作关键词命名" /></label>
           <div className="input-grid">
             <label className="field persona-field">
               <span>账号人设</span>
               <textarea
                 ref={personaRef}
                 maxLength={1000}
+                disabled={isBusy}
                 value={persona}
                 onChange={(event) => setPersona(event.target.value)}
               />
@@ -1271,14 +1243,19 @@ export function App() {
             </label>
             <label className="field keyword-field">
               <span>创作关键词</span>
-              <input ref={keywordRef} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+              <input ref={keywordRef} value={keyword} maxLength={160} disabled={isBusy} onChange={(event) => setKeyword(event.target.value)} />
               <small>自动缓存</small>
             </label>
           </div>
+          <label className="field brief-field"><span>本篇创作要求</span><textarea ref={writingBriefRef} value={writingBrief} disabled={isBusy} onChange={(event) => setWritingBrief(event.target.value)} placeholder="写给谁、想表达什么、口吻和篇幅。真实经历与数据请放在下方素材区。" /><small>{writingBrief.length} / {LIMITS.writingBrief} 字符 · 从选题开始生效</small></label>
+          <label className="field"><span>必须保留的内容</span><textarea className="must-include-input" value={mustInclude} disabled={isBusy} onChange={(event) => setMustInclude(event.target.value)} placeholder="例如：保留实际花费、路线难点和不推荐的部分。" /><small>{mustInclude.length} / {LIMITS.mustInclude} 字符</small></label>
+          <div className="automation-options"><span>自动化选项</span><label><input type="checkbox" checked={useReferences} disabled={isBusy} onChange={(event) => setUseReferences(event.target.checked)} />搜索并参考热门内容</label><label><input type="checkbox" checked={includeCover} disabled={isBusy} onChange={(event) => setIncludeCover(event.target.checked)} />同时生成封面图</label></div>
         </section>
 
+        <MaterialsPanel materials={sourceMaterials} onChange={setSourceMaterials} inputTitle={materialInputTitle} onInputTitle={setMaterialInputTitle} inputContent={materialInputContent} onInputContent={setMaterialInputContent} analysis={materialAnalysis} analysisCurrent={materialAnalysisCurrent} confirmed={summaryConfirmed} onConfirm={() => { if (materialAnalysis.summary.length > LIMITS.materialSummary) { setCustomError(`素材摘要最多 ${LIMITS.materialSummary} 字符，请精简后确认。`); return; } setSummaryConfirmed(true); setSuccess("已确认摘要，后续仍会读取完整素材原文。"); }} onSummaryChange={(summary) => { setMaterialAnalysis((current) => ({ ...current, summary })); setSummaryConfirmed(false); }} onOrganize={organizeMaterials} onKeyword={(nextKeyword) => { setKeyword(nextKeyword); setSuccess("已填写建议关键词。点击搜索后才会获取热门内容。"); }} busy={isBusy} onMessage={(message, error) => error ? setCustomError(message) : setSuccess(message)} onReuse={() => newProject(true)} />
+
         <section className="stage-grid">
-          <article className="stage-card clay-panel">
+          <article id="step-research" className="stage-card clay-panel">
             <SectionHeader
               icon="搜"
               tone="yellow"
@@ -1329,39 +1306,24 @@ export function App() {
             </div>
           </article>
 
-          <article className="stage-card clay-panel">
+          <article id="step-rag" className="stage-card clay-panel">
             <SectionHeader
               icon="库"
               tone="mint"
-              title="本地 RAG 知识库"
-              meta="只保存用户勾选并确认的参考内容"
-              action={<button className="soft-button mint" disabled={isBusy} type="button" onClick={addToRag}>加入 RAG</button>}
+              title="热门文字参考"
+              meta="学习写法，事实以你的素材为依据"
+              action={<button className="soft-button mint" disabled={isBusy} type="button" onClick={addToRag}>加入参考</button>}
             />
-            <div className="rag-stack">
-              {ragItems.length === 0 ? (
-                <div className="empty-state">
-                  <SoftIcon tone="mint">选</SoftIcon>
-                  <p>勾选搜索结果后，点击加入本地 RAG。</p>
-                </div>
-              ) : (
-                ragItems.map((item) => (
-                  <article key={item.id} className="rag-item">
-                    <strong>{item.title}</strong>
-                    <p>{item.excerpt}</p>
-                    <small>{item.tags.join(" / ")}</small>
-                  </article>
-                ))
-              )}
-            </div>
+            <ReferenceLibrary key={workspace.project.id} items={ragItems} onChange={setRagItems} busy={isBusy} analysis={referenceAnalysis} analysisCurrent={referenceAnalysisCurrent} onAnalyze={analyzeReferences} onMessage={(message, error) => error ? setCustomError(message) : setSuccess(message)} />
           </article>
         </section>
 
-        <section className="stage-card clay-panel wide-card">
+        <section id="step-topics" className="stage-card clay-panel wide-card">
           <SectionHeader
             icon="题"
             tone="blue"
             title="生成 10 个选题"
-            meta="参考人设、关键词与本地 RAG"
+            meta="结合个人素材、创作要求与热门参考"
             action={
               <button
                 className="primary-button"
@@ -1377,7 +1339,7 @@ export function App() {
             {topics.length === 0 ? (
               <div className="empty-state inline">
                 <SoftIcon tone="blue">10</SoftIcon>
-                <p>完成搜索和 RAG 入库后，生成选题会出现在这里。</p>
+                <p>加入你的素材或热门参考后，生成有内容依据的选题。</p>
               </div>
             ) : (
               topics.map((topic, index) => (
@@ -1392,6 +1354,8 @@ export function App() {
                   <p>{topic.angle}</p>
                   <small>{topic.audience}</small>
                   <em>{topic.hook}</em>
+                   {topic.materialIds?.length ? <small className="source-hint">素材依据：{topic.materialIds.map((id) => sourceMaterials.find((item) => item.id === id)?.title || "已移除素材").join("、")}</small> : null}
+                   {topic.missingInformation?.length ? <small className="text-error">待补充：{topic.missingInformation.join("；")}</small> : null}
                 </button>
               ))
             )}
@@ -1399,7 +1363,7 @@ export function App() {
         </section>
 
         <section className="copy-grid">
-          <article className="stage-card clay-panel">
+          <article id="step-drafts" className="stage-card clay-panel">
             <SectionHeader
               icon="写"
               tone="lavender"
@@ -1416,14 +1380,7 @@ export function App() {
                 </button>
               }
             />
-            <label className="field brief-field">
-              <span>补充撰写思路</span>
-              <textarea
-                ref={writingBriefRef}
-                value={writingBrief}
-                onChange={(event) => setWritingBrief(event.target.value)}
-              />
-            </label>
+            <p className="help-text">每篇都以勾选素材为事实基础，结合上方填写的创作要求。</p>
             <div className="draft-list">
               {drafts.length === 0 ? (
                 <div className="empty-state">
@@ -1474,7 +1431,19 @@ export function App() {
           </article>
         </section>
 
-        <section className="cover-grid">
+        {selectedDraft ? <section className="stage-card clay-panel draft-editor" aria-label="编辑选中文案">
+          <SectionHeader icon="改" tone="lavender" title="把这一篇，改成你的表达" meta="编辑会同步预览并保存；修改后可重新核对素材" action={<div className="section-actions"><button type="button" className="soft-button mint" disabled={isBusy} onClick={copyDraft}>复制文案</button><button type="button" className="soft-button" disabled={isBusy} onClick={exportDraft}>导出 Markdown</button></div>} />
+          <label className="field"><span>编辑文案标题</span><input value={selectedDraft.title} disabled={isBusy} onChange={(event) => editDraft({ title: event.target.value })} /></label>
+          <label className="field"><span>编辑文案正文</span><textarea value={selectedDraft.body} disabled={isBusy} onChange={(event) => editDraft({ body: event.target.value })} /><small>{selectedDraft.body.length} 字符 · 话题标签格式：#话题名称[话题]#</small></label>
+          {!/#.+?\[话题\]#/.test(selectedDraft.body) ? <p className="text-error help-text">正文缺少小红书话题标签，可以编辑补充。</p> : null}
+          <div className="source-chips">{selectedDraft.materialIds?.map((id) => <span key={id}>素材：{sourceMaterials.find((item) => item.id === id)?.title || "已移除素材"}</span>)}</div>
+          {selectedDraft.missingInformation?.length ? <p className="help-text text-error">待补充：{selectedDraft.missingInformation.join("；")}</p> : null}
+          <button type="button" className="soft-button mint" disabled={isBusy || !selectedSourceMaterials.length} onClick={reviewDraft}>{generatingKind === "draftReview" ? "核对中…" : "核对素材与文案"}</button>
+          <p className="help-text">辅助检查经历、数字和必须保留的信息，发布前请结合实际情况确认。</p>
+          {draftReview ? <div className="analysis-box"><strong>{draftReviewCurrent ? "本篇素材核对" : "文案或素材已变化，请重新核对"}</strong><p>{draftReview.summary}</p>{draftReview.checks.map((check, index) => <div className={`evidence-item ${check.status}`} key={index}><strong>{check.status === "supported" ? "有素材依据" : check.status === "missing" ? "待补充" : "待确认"} · {check.claim}</strong><p>{check.reason}</p>{check.quote ? <blockquote>{check.quote}</blockquote> : null}</div>)}{draftReview.missingPoints.length ? <p className="text-error">尚未覆盖：{draftReview.missingPoints.join("；")}</p> : null}</div> : null}
+        </section> : null}
+
+        <section id="step-cover" className="cover-grid">
           <article className="stage-card clay-panel">
             <SectionHeader
               icon="图"

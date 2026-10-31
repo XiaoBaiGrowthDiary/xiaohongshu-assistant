@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { runCodex } from "../codex/runCodex.mjs";
 import { CodexApiError } from "../codex/validation.mjs";
 import { resolveCodexCommand } from "./commandPaths.mjs";
+import { assertCliArgumentBudget } from "./inputBudget.mjs";
 
 const TEXT_TIMEOUT_MS = 180_000;
 const DETECT_TIMEOUT_MS = 5_000;
@@ -95,21 +96,24 @@ function parseAssistantContent(stdout) {
   return lastAssistantContent.trim();
 }
 
-async function spawnAndCollect(command, args, { timeoutMs, errorPrefix }) {
+async function spawnAndCollect(command, args, { timeoutMs, errorPrefix, input }) {
+  assertCliArgumentBudget(command, args);
   const startedAt = Date.now();
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: repoRoot,
       env: { ...process.env, NO_COLOR: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       shell: false,
     });
 
     let stdout = "";
     let stderr = "";
     let settled = false;
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     const appendOutput = (target, chunk) => {
-      const next = target + chunk.toString("utf8");
+      const next = target + chunk;
       if (Buffer.byteLength(next, "utf8") > MAX_OUTPUT_BYTES) {
         if (!settled) {
           settled = true;
@@ -170,6 +174,14 @@ async function spawnAndCollect(command, args, { timeoutMs, errorPrefix }) {
       }
       resolve({ stdout: stdout.trim(), stderr: stderr.trim(), durationMs });
     });
+    if (input !== undefined) {
+      child.stdin.on("error", () => {
+        if (settled) return;
+        settled = true; clearTimeout(timer); child.kill("SIGTERM");
+        reject(new CodexApiError("LOCAL_CLI_INPUT_FAILED", `${errorPrefix} 未能接收完整素材，请重试。`, 502));
+      });
+      child.stdin.end(input, "utf8");
+    }
   });
 }
 
@@ -239,7 +251,7 @@ async function runClaudePrintCli({ command, prompt, modelName, label }) {
   const args = [
     ...modelArg(modelName),
     "--print",
-    prompt,
+    "Complete the task supplied in stdin. Return only valid JSON.",
     "--output-format",
     "json",
     "--safe-mode",
@@ -250,12 +262,13 @@ async function runClaudePrintCli({ command, prompt, modelName, label }) {
   const result = await spawnAndCollect(command, args, {
     timeoutMs: TEXT_TIMEOUT_MS,
     errorPrefix: label,
+    input: prompt,
   });
 
   return {
     ...result,
     raw: parseClaudeResult(result.stdout, label),
-    commandPreview: `${displayCommand(command)}${modelArg(modelName).length ? " --model [model]" : ""} --print [prompt] --output-format json --safe-mode --tools [disabled] --no-session-persistence`,
+    commandPreview: `${displayCommand(command)}${modelArg(modelName).length ? " --model [model]" : ""} --print [stdin] --output-format json --safe-mode --tools [disabled] --no-session-persistence`,
   };
 }
 

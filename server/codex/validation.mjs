@@ -1,4 +1,6 @@
-const VALID_KINDS = new Set(["topics", "drafts", "coverPrompts"]);
+import { contextError, selectedMaterials } from "../../shared/workflow.mjs";
+
+const VALID_KINDS = new Set(["topics", "drafts", "coverPrompts", "materials", "referenceAnalysis", "draftReview"]);
 const VALID_DECISION_KINDS = new Set(["rag", "topic", "draft", "coverPrompt"]);
 
 export class CodexApiError extends Error {
@@ -20,6 +22,12 @@ export function validateRequest(payload) {
     throw new CodexApiError("BAD_REQUEST", "生成类型无效。");
   }
 
+  validateContext(payload);
+  if (payload.kind === "materials") {
+    if (selectedMaterials(payload.sourceMaterials).length === 0) throw new CodexApiError("BAD_REQUEST", "请先添加并勾选文字素材。");
+    return;
+  }
+
   if (!String(payload.persona ?? "").trim()) {
     throw new CodexApiError("BAD_REQUEST", "请先填写账号人设。");
   }
@@ -28,9 +36,12 @@ export function validateRequest(payload) {
     throw new CodexApiError("BAD_REQUEST", "请先填写创作关键词。");
   }
 
-  if (!Array.isArray(payload.ragItems) || payload.ragItems.length === 0) {
-    throw new CodexApiError("BAD_REQUEST", "请先将至少一条参考内容加入本地 RAG。");
+  if (!selectedMaterials(payload.sourceMaterials).length && !payload.ragItems?.length) {
+    throw new CodexApiError("BAD_REQUEST", "请先添加文字素材，或选择至少一条热门参考。");
   }
+
+  if (payload.kind === "referenceAnalysis" && !payload.ragItems?.length) throw new CodexApiError("BAD_REQUEST", "请先选择热门参考。");
+  if (payload.kind === "draftReview" && (!selectedMaterials(payload.sourceMaterials).length || !payload.selectedDraft?.body)) throw new CodexApiError("BAD_REQUEST", "核对文案需要个人素材和已选择的文案。");
 
   if (payload.kind === "drafts" && !payload.selectedTopic?.title) {
     throw new CodexApiError("BAD_REQUEST", "请先选择一个选题。");
@@ -39,6 +50,13 @@ export function validateRequest(payload) {
   if (payload.kind === "coverPrompts" && !payload.selectedDraft?.title) {
     throw new CodexApiError("BAD_REQUEST", "请先选择一篇文案。");
   }
+}
+
+function validateContext(payload) {
+  const problem = contextError(payload);
+  if (problem) throw new CodexApiError("BAD_REQUEST", problem);
+  if (payload.persona !== undefined && (typeof payload.persona !== "string" || payload.persona.length > 1000)) throw new CodexApiError("BAD_REQUEST", "账号人设最多 1000 字符。");
+  if (payload.keyword !== undefined && (typeof payload.keyword !== "string" || payload.keyword.length > 160)) throw new CodexApiError("BAD_REQUEST", "关键词最多 160 字符。");
 }
 
 function validateBaseWorkflowPayload(payload) {
@@ -57,6 +75,7 @@ function validateBaseWorkflowPayload(payload) {
 
 export function validateDecisionRequest(payload) {
   validateBaseWorkflowPayload(payload);
+  validateContext(payload);
 
   if (!VALID_DECISION_KINDS.has(payload.decisionKind)) {
     throw new CodexApiError("BAD_REQUEST", "决策类型无效。");
@@ -82,8 +101,8 @@ export function validateDecisionRequest(payload) {
     optionIds.add(id);
   }
 
-  if (payload.decisionKind !== "rag" && (!Array.isArray(payload.ragItems) || payload.ragItems.length === 0)) {
-    throw new CodexApiError("BAD_REQUEST", "请先将至少一条参考内容加入本地 RAG。");
+  if (payload.decisionKind !== "rag" && !payload.ragItems?.length && !selectedMaterials(payload.sourceMaterials).length) {
+    throw new CodexApiError("BAD_REQUEST", "请先添加文字素材，或选择至少一条热门参考。");
   }
 
   if (payload.decisionKind === "draft" && !payload.selectedTopic?.title) {
@@ -198,6 +217,71 @@ function normalizePrompt(item, index) {
   };
 }
 
+function stringArray(value, name, max = 30) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > max || value.some((entry) => typeof entry !== "string" || !entry.trim() || entry.length > 4000)) {
+    throw new CodexApiError("CODEX_BAD_JSON", `模型返回的 ${name} 必须是有效的文字数组。`, 502);
+  }
+  return value.map((entry) => entry.trim());
+}
+
+function sourceIds(item, payload) {
+  const allowedIds = new Set(selectedMaterials(payload.sourceMaterials).map((material) => material.id));
+  const materialIds = stringArray(item.materialIds ?? item.material_ids ?? item["素材编号"], "materialIds", 12);
+  if (new Set(materialIds).size !== materialIds.length || materialIds.some((id) => !allowedIds.has(id)) || (allowedIds.size > 0 && materialIds.length === 0)) {
+    throw new CodexApiError("CODEX_BAD_JSON", "模型返回的素材依据缺失或引用了未选中的素材，请重试。", 502);
+  }
+  return { materialIds, missingInformation: stringArray(item.missingInformation ?? item.missing_information ?? item["待补充信息"], "missingInformation") };
+}
+
+function assertEvidence(entry, payload) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new CodexApiError("CODEX_BAD_JSON", "模型返回的素材依据格式无效。", 502);
+  const source = selectedMaterials(payload.sourceMaterials).find((material) => material.id === entry.materialId);
+  const quote = assertString(entry.quote, "quote");
+  const plain = (value) => value.replace(/\s+/g, " ").trim();
+  if (!source || !plain(source.content).includes(plain(quote))) {
+    throw new CodexApiError("CODEX_BAD_JSON", "模型返回的原文引文与选中素材不一致，请重新整理或核对。", 502);
+  }
+  return { materialId: source.id, quote };
+}
+
+function normalizeAnalysis(kind, item, payload) {
+  const summary = assertString(item.summary, "summary");
+  if (summary.length > 4000) throw new CodexApiError("CODEX_BAD_JSON", "模型摘要过长，请重试。", 502);
+  if (kind === "materials") {
+    if (!Array.isArray(item.facts) || !item.facts.length || item.facts.length > 20) throw new CodexApiError("CODEX_BAD_JSON", "素材整理需要返回 1 到 20 条带原文依据的信息。", 502);
+    return {
+      summary,
+      facts: item.facts.map((fact) => ({ ...assertEvidence(fact, payload), insight: assertString(fact.insight, "insight") })),
+      suggestedKeywords: stringArray(item.suggestedKeywords, "suggestedKeywords", 6).filter((keyword) => keyword.length <= 160),
+      missingInformation: stringArray(item.missingInformation, "missingInformation"),
+    };
+  }
+  if (kind === "referenceAnalysis") {
+    const ids = new Set((payload.ragItems || []).map((reference) => reference.id));
+    if (!Array.isArray(item.patterns) || !item.patterns.length || item.patterns.length > ids.size) throw new CodexApiError("CODEX_BAD_JSON", "热门写法分析缺少参考依据。", 502);
+    const seen = new Set();
+    const patterns = item.patterns.map((pattern) => {
+      if (!pattern || typeof pattern !== "object") throw new CodexApiError("CODEX_BAD_JSON", "热门写法分析条目格式无效。", 502);
+      if (!ids.has(pattern.referenceId) || seen.has(pattern.referenceId)) throw new CodexApiError("CODEX_BAD_JSON", "热门写法分析引用了无效或重复的参考编号。", 502);
+      seen.add(pattern.referenceId);
+      return Object.fromEntries(["referenceId", "titlePattern", "opening", "structure", "ending"].map((key) => [key, assertString(pattern[key], key)]));
+    });
+    return { summary, patterns, recommendedApproach: assertString(item.recommendedApproach, "recommendedApproach") };
+  }
+  if (!Array.isArray(item.checks) || item.checks.length > 40) throw new CodexApiError("CODEX_BAD_JSON", "文案核对需要返回 checks 数组。", 502);
+  return {
+    summary,
+    checks: item.checks.map((check) => {
+      if (!check || typeof check !== "object") throw new CodexApiError("CODEX_BAD_JSON", "文案核对条目格式无效。", 502);
+      if (!["supported", "needs_confirmation", "missing"].includes(check.status)) throw new CodexApiError("CODEX_BAD_JSON", "文案核对状态无效。", 502);
+      const evidence = check.status === "supported" ? assertEvidence(check, payload) : { materialId: "", quote: "" };
+      return { ...evidence, claim: assertString(check.claim, "claim"), status: check.status, reason: assertString(check.reason, "reason") };
+    }),
+    missingPoints: stringArray(item.missingPoints, "missingPoints"),
+  };
+}
+
 export function parseJsonFromCodex(raw) {
   const text = String(raw ?? "").trim();
   if (!text) {
@@ -265,11 +349,12 @@ export function normalizeDecisionResult(parsed, payload) {
 }
 
 export function normalizeCodexItems(kind, parsed, payload) {
-  if (!parsed || !Array.isArray(parsed.items)) {
+  if (!parsed || !Array.isArray(parsed.items) || parsed.items.some((item) => !item || typeof item !== "object" || Array.isArray(item))) {
     throw new CodexApiError("CODEX_BAD_JSON", "模型 JSON 必须包含 items 数组。", 502);
   }
 
-  const expectedCount = kind === "topics" ? 10 : 5;
+  const isAnalysis = ["materials", "referenceAnalysis", "draftReview"].includes(kind);
+  const expectedCount = isAnalysis ? 1 : kind === "topics" ? 10 : 5;
   if (parsed.items.length !== expectedCount) {
     throw new CodexApiError(
       "CODEX_BAD_JSON",
@@ -278,12 +363,14 @@ export function normalizeCodexItems(kind, parsed, payload) {
     );
   }
 
+  if (isAnalysis) return [normalizeAnalysis(kind, parsed.items[0], payload)];
+
   if (kind === "topics") {
-    return parsed.items.map(normalizeTopic);
+    return parsed.items.map((item, index) => ({ ...normalizeTopic(item, index), ...sourceIds(item, payload) }));
   }
 
   if (kind === "drafts") {
-    return parsed.items.map((item, index) => normalizeDraft(item, index, payload.selectedTopic.title));
+    return parsed.items.map((item, index) => ({ ...normalizeDraft(item, index, payload.selectedTopic.title), ...sourceIds(item, payload) }));
   }
 
   return parsed.items.map(normalizePrompt);

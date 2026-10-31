@@ -28,7 +28,7 @@ import {
   runLocalTextCli,
 } from "../localCli/registry.mjs";
 
-const MAX_BODY_BYTES = 128 * 1024;
+const MAX_BODY_BYTES = 512 * 1024;
 
 function sendJson(res, status, payload) {
   res.statusCode = status;
@@ -37,16 +37,18 @@ function sendJson(res, status, payload) {
 }
 
 async function readJsonBody(req) {
-  let body = "";
+  const chunks = [];
+  let size = 0;
   for await (const chunk of req) {
-    body += chunk.toString("utf8");
-    if (Buffer.byteLength(body, "utf8") > MAX_BODY_BYTES) {
+    size += chunk.length;
+    if (size > MAX_BODY_BYTES) {
       throw new CodexApiError("BAD_REQUEST", "请求体过大。");
     }
+    chunks.push(chunk);
   }
 
   try {
-    return JSON.parse(body || "{}");
+    return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
   } catch {
     throw new CodexApiError("BAD_REQUEST", "请求体不是合法 JSON。");
   }
