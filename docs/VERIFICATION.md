@@ -16,11 +16,19 @@ npm run launch:fixed
 
 固定地址是 `http://127.0.0.1:52880`。如果该端口被占用，需要先停止占用进程；不要让 Vite 自动漂移端口，否则浏览器 `localStorage` 中的模型配置会进入另一份 origin 缓存。
 
-本地 Codex CLI 路径默认是 `/opt/homebrew/bin/codex`。需要覆盖时：
+本地 Codex CLI 默认从 PATH 查找；Windows 会自动定位 npm 安装的原生可执行文件，无需反复设置路径。需要显式覆盖时：
 
 ```bash
 CODEX_CLI_PATH=/path/to/codex npm run launch:fixed
 ```
+
+CLI 路径与搜索错误处理的离线回归检查：
+
+```bash
+npm test
+```
+
+启动器检查应覆盖 Windows 双击启动、自动定位本地安装、重复启动复用原服务和 Ctrl+C 停止服务。可用 `node scripts/start-fixed.mjs --dev --no-open --port 52881` 在独立测试端口验证启动与停止，不影响用户正在使用的固定地址；正常使用仍保持 52880。路径检查和启动过程不应执行本机 CLI 检测、搜索或生成。
 
 本地 Codex API smoke test：
 

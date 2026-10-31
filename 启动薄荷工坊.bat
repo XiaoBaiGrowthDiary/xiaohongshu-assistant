@@ -14,16 +14,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-where npm >nul 2>nul
-if errorlevel 1 (
-  echo npm was not found. Please install Node.js first:
-  echo https://nodejs.org/
+node scripts\start-fixed.mjs %*
+set "LAUNCH_EXIT_CODE=%ERRORLEVEL%"
+
+if not "%LAUNCH_EXIT_CODE%"=="0" if not "%LAUNCH_EXIT_CODE%"=="130" (
   echo.
   pause
-  exit /b 1
 )
-
-node scripts\start-fixed.mjs
-
-echo.
-pause
+exit /b %LAUNCH_EXIT_CODE%

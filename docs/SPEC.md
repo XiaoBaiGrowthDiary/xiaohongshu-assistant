@@ -41,6 +41,10 @@
 
 服务端只消费 `xhs` 的结构化 JSON 输出，并返回归一化后的搜索项；不得把原始 CLI 输出、Cookie 或 `xsec_token` 返回给浏览器。
 
+调用 `xhs` 时，服务端只固定 `PYTHONIOENCODING=utf-8`，并以 UTF-8 流式解码 stdout/stderr，避免 Windows 默认 GBK 编码遇到 emoji 时中断 JSON 输出，以及跨数据块的中文或 emoji 被破坏。不得强制开启 `PYTHONUTF8=1`，因为它还会改变文件读写编码，使 CLI 无法读取已有 GBK 搜索缓存。该设置只作用于本次 CLI 子进程，不修改用户的系统环境变量、缓存或登录凭据。
+
+CLI 返回结构化错误时保留未登录、需要验证等现有分类。CLI 异常退出且未返回合法 JSON 时，根据 stderr 识别 `UnicodeDecodeError`（`XHS_CACHE_ENCODING_ERROR`）、`UnicodeEncodeError`（`XHS_TEXT_ENCODING_ERROR`）和 Python 依赖加载错误（`XHS_RUNTIME_ERROR`），其他异常显示退出码或终止信号，不得一律显示 `XHS_BAD_JSON`。诊断提示不得包含原始 CLI 输出、traceback、Cookie 或 `xsec_token`。
+
 搜索结果需要展示：
 
 - 标题
@@ -102,6 +106,7 @@
 文案生成模型和图片生成模型需要支持单独配置。用户可以选择本地 CLI 或云端 API。本地文案 CLI 由服务端注册表提供，页面通过用户主动点击“检测本机 CLI”执行 `--version` 检测并展示可用状态，禁止后台检测。内置适配器包括：
 
 - Codex CLI：通过 `codex exec` 生成文本和模型决策，也可通过 native `image_gen.imagegen` 生成本地 PNG；默认从 PATH 查找，可用 `CODEX_CLI_PATH` 覆盖。
+- Codex 配置继承：文案模型别名留空时，文本生成和模型决策使用 CLI 配置的默认模型；填写有效模型 ID 时通过 `-m` 覆盖本次调用。文本生成、模型决策和封面 worker 均继承 CLI 的 `model_reasoning_effort`，不传入固定的思考强度覆盖值。封面图片工具实际使用的图片模型由工具决定。
 - Kimi CLI：通过 `kimi --prompt <prompt> --output-format stream-json` 生成文本和模型决策，可选 `--model <alias>`；默认从 PATH 查找，可用 `KIMI_CLI_PATH` 覆盖。Kimi CLI 当前不声明图片生成能力，因此不会出现在本地图片 CLI 选项中。
 - Claude Code：通过 `claude --print <prompt> --output-format json` 生成文本和模型决策，可选 `--model <alias>`；调用时启用 safe mode、关闭工具和会话持久化，解析响应的 `result` 字段。默认从 PATH 查找，可用 `CLAUDE_CLI_PATH` 覆盖。Claude Code 当前不声明图片生成能力，因此不会出现在本地图片 CLI 选项中。
 - 自定义规范 CLI：用户可填写 PATH 中的命令名或可执行文件绝对路径。服务端使用 `shell: false` 和独立参数数组启动，不允许 shell 命令片段。
@@ -150,3 +155,9 @@ Mint Atelier print protocol 规定：CLI 必须支持 `--version`；文本调用
 - Codex CLI imagegen 失败或写出非 PNG 内容
 - 云端 API 配置缺失、Base URL 无效、HTTP 错误、超时、返回非 JSON、返回结构不支持或返回非 PNG 图片
 - 网络请求失败
+
+## 4. 本地启动
+
+Windows 用户可以双击 `启动薄荷工坊.bat`，macOS 用户可以双击 `启动薄荷工坊.command`。默认固定使用 `http://127.0.0.1:52880`：缺少依赖时安装依赖，然后构建、启动本地预览并打开浏览器；`npm run launch:dev` 使用同一固定地址启动开发服务。启动器通过 Node 直接运行 Vite，依赖安装通过 Node 运行 npm 的 JavaScript 入口，不以 `shell: false` 直接执行 Windows `.cmd` 文件。如果固定地址上已经运行着薄荷工坊，启动器直接打开已有页面，不重复启动服务。
+
+Windows 的 CLI 路径由统一解析器提供：尊重 `CODEX_CLI_PATH` 和 `XHS_CLI_COMMAND` 显式覆盖，其次检查 PATH 中的原生可执行文件或 npm Codex 平台包，并支持用户默认 npm 目录和 uv `.local/bin` 目录。Codex 检测、文本生成与封面 worker 必须使用同一解析规则。路径解析只读取安装文件，不执行 CLI 或版本检测，不修改系统环境、模型设置、缓存或登录凭据；搜索、检测和生成仍由用户点击相应按钮触发。

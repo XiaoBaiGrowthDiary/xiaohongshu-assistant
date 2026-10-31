@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodexApiError } from "./validation.mjs";
+import { resolveCodexCommand } from "../localCli/commandPaths.mjs";
 
-const DEFAULT_CODEX_PATH = "codex";
 const TIMEOUT_MS = 180_000;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -25,8 +25,6 @@ function buildArgs({ prompt, modelName, outputPath }) {
     "exec",
     "-C",
     repoRoot,
-    "-c",
-    'model_reasoning_effort="low"',
     "--sandbox",
     "read-only",
     "--output-last-message",
@@ -47,7 +45,7 @@ function commandPreview(args) {
 }
 
 export async function runCodex({ prompt, modelName }) {
-  const codexPath = process.env.CODEX_CLI_PATH || DEFAULT_CODEX_PATH;
+  const codexPath = resolveCodexCommand();
   const workDir = await mkdtemp(path.join(tmpdir(), "xhs-g4-codex-"));
   const outputPath = path.join(workDir, "last-message.txt");
   const args = buildArgs({ prompt, modelName, outputPath });
@@ -59,6 +57,7 @@ export async function runCodex({ prompt, modelName }) {
         cwd: repoRoot,
         env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
+        shell: false,
       });
 
       let stdout = "";

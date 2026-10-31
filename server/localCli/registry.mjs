@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCodex } from "../codex/runCodex.mjs";
 import { CodexApiError } from "../codex/validation.mjs";
+import { resolveCodexCommand } from "./commandPaths.mjs";
 
 const TEXT_TIMEOUT_MS = 180_000;
 const DETECT_TIMEOUT_MS = 5_000;
@@ -15,7 +16,7 @@ const BUILTIN_CLIS = [
     label: "Codex CLI",
     description: "Codex 原生非交互模式",
     capabilities: { text: true, image: true },
-    command: () => process.env.CODEX_CLI_PATH || "codex",
+    command: () => resolveCodexCommand(),
     commandPreview: "codex exec ...",
   },
   {

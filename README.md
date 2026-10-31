@@ -17,6 +17,8 @@
 
 脚本会使用固定地址 `http://127.0.0.1:52880`，缺少 `node_modules` 时会先执行 `npm install`，然后等待本地服务启动并自动打开浏览器。模型配置写入浏览器 `localStorage`，固定地址可以避免端口变化导致缓存读不到。
 
+Windows 会自动定位通过 npm 安装的 Codex 原生 `codex.exe`，以及通过 uv 安装在用户 `.local/bin` 下的 `xhs.exe`，不需要每次打开 PowerShell 后重新输入 `CODEX_CLI_PATH`。一键脚本通过 Node 直接运行 Vite，首次安装依赖时也通过 Node 运行 npm 的 JavaScript 入口，兼容 Windows 的 `npm.cmd` 执行限制。如果固定地址已经运行着薄荷工坊，再次双击只会打开已有页面；使用期间保留原来的服务窗口。
+
 命令行启动同一个固定地址：
 
 ```bash
@@ -47,11 +49,13 @@ npm run dev
 npm run build
 ```
 
-本地 Codex CLI 默认通过系统 PATH 查找 `codex`，可通过环境变量覆盖：
+本地 Codex CLI 默认通过系统 PATH 查找 `codex`；Windows 会解析 npm 安装目录中的原生可执行文件，并在需要时查找用户 npm 默认目录。可通过环境变量覆盖自动查找结果：
 
 ```bash
 CODEX_CLI_PATH=/path/to/codex npm run launch:fixed
 ```
+
+如需统一使用 Codex CLI 的默认模型和思考强度，请将网页“文案生成”的模型别名留空，并在 `~/.codex/config.toml` 中配置 `model` 和 `model_reasoning_effort`。本地文本生成、模型决策和封面 worker 继承 CLI 配置的思考强度；网页填写具体文案模型 ID 时，仅覆盖文本调用的模型。
 
 Kimi CLI 默认通过系统 PATH 查找 `kimi`，可通过环境变量覆盖。首次使用前请在终端完成 `kimi login`；页面点击“检测本机 CLI”后会显示版本和可用状态：
 

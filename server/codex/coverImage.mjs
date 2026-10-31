@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodexApiError } from "./validation.mjs";
+import { resolveCodexCommand } from "../localCli/commandPaths.mjs";
 
-const DEFAULT_CODEX_PATH = "codex";
 const GENERATED_ROUTE_PREFIX = "/generated/covers/";
 const IMAGEGEN_TIMEOUT_MS = 600_000;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -181,7 +181,7 @@ export function validateCoverImageRequest(payload) {
 }
 
 export async function runCoverImagegen(payload) {
-  const codexPath = process.env.CODEX_CLI_PATH || DEFAULT_CODEX_PATH;
+  const codexPath = resolveCodexCommand();
   const workDir = await mkdtemp(path.join(tmpdir(), "xhs-g4-imagegen-"));
   const imagePath = path.join(workDir, "image.png");
   const resultPath = path.join(workDir, "result.json");
@@ -194,8 +194,6 @@ export async function runCoverImagegen(payload) {
     "workspace-write",
     "-c",
     'approval_policy="on-request"',
-    "-c",
-    'model_reasoning_effort="low"',
     "--output-last-message",
     lastMessagePath,
     workerPrompt({ payload, imagePath, resultPath }),
@@ -208,6 +206,7 @@ export async function runCoverImagegen(payload) {
         cwd: repoRoot,
         env: { ...process.env, NO_COLOR: "1" },
         stdio: ["ignore", "pipe", "pipe"],
+        shell: false,
       });
 
       let stdout = "";

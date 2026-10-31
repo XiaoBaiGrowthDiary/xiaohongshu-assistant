@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodexApiError } from "../codex/validation.mjs";
+import { resolveXhsCommand } from "../localCli/commandPaths.mjs";
 
-const DEFAULT_XHS_CLI_COMMAND = "xhs";
 const DEFAULT_COOKIE_SOURCE = "none";
 const TIMEOUT_MS = 60_000;
 const MAX_DETAILS_CHARS = 800;
@@ -141,7 +141,40 @@ function parseJsonOutput(stdout) {
     }
   }
 
-  throw new CodexApiError("XHS_BAD_JSON", "xhs CLI 返回内容不是合法 JSON。", 502, sanitizeDetails(text));
+  throw new CodexApiError("XHS_BAD_JSON", "xhs CLI 返回内容不是合法 JSON。", 502);
+}
+
+function cliExecutionError(stderr, code, signal) {
+  if (/UnicodeDecodeError/.test(stderr)) {
+    return new CodexApiError(
+      "XHS_CACHE_ENCODING_ERROR",
+      "小红书 CLI 读取本地数据时发生编码冲突（UnicodeDecodeError）。请在启动服务的终端移除 PYTHONUTF8 设置后重启服务。",
+      502,
+    );
+  }
+
+  if (/UnicodeEncodeError/.test(stderr)) {
+    return new CodexApiError(
+      "XHS_TEXT_ENCODING_ERROR",
+      "小红书 CLI 处理文本时发生编码错误（UnicodeEncodeError）。请检查 CLI 的输出编码和本地缓存编码。",
+      502,
+    );
+  }
+
+  if (/ModuleNotFoundError|ImportError|DLL load failed/.test(stderr)) {
+    return new CodexApiError(
+      "XHS_RUNTIME_ERROR",
+      "小红书 CLI 的 Python 运行环境或依赖加载失败。请在终端执行 xhs --version 查看具体报错。",
+      502,
+    );
+  }
+
+  const reason = signal ? `信号 ${signal}` : `退出码 ${code}`;
+  return new CodexApiError(
+    "XHS_FAILED",
+    `xhs CLI 搜索失败（${reason}）。请在终端检查 CLI 的错误提示。`,
+    502,
+  );
 }
 
 function mapCliError(cliError) {
@@ -275,7 +308,7 @@ export function validateXhsSearchRequest(payload) {
 }
 
 export async function runXhsSearch(payload) {
-  const cliCommand = process.env.XHS_CLI_COMMAND || DEFAULT_XHS_CLI_COMMAND;
+  const cliCommand = resolveXhsCommand();
   const cookieSource = process.env.XHS_COOKIE_SOURCE || DEFAULT_COOKIE_SOURCE;
   const args = [
     "--cookie-source",
@@ -296,9 +329,19 @@ export async function runXhsSearch(payload) {
   const result = await new Promise((resolve, reject) => {
     const child = spawn(cliCommand, args, {
       cwd: repoRoot,
-      env: { ...process.env, OUTPUT: "json" },
+      env: {
+        ...process.env,
+        OUTPUT: "json",
+        // Set only the pipe encoding. Enabling global UTF-8 mode also changes
+        // file I/O and prevents the CLI from reading existing GBK caches.
+        PYTHONIOENCODING: "utf-8",
+      },
       stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
     });
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
 
     let stdout = "";
     let stderr = "";
@@ -312,11 +355,11 @@ export async function runXhsSearch(payload) {
     }, TIMEOUT_MS);
 
     child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
+      stdout += chunk;
     });
 
     child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
+      stderr += chunk;
     });
 
     child.on("error", (error) => {
@@ -332,25 +375,21 @@ export async function runXhsSearch(payload) {
       );
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
 
       try {
-        const envelope = parseJsonOutput(stdout);
+        let envelope;
+        try {
+          envelope = parseJsonOutput(stdout);
+        } catch (error) {
+          if (code !== 0 || signal) throw cliExecutionError(stderr, code, signal);
+          throw error;
+        }
         const normalized = normalizeSearchData(envelope, payload, startedAt);
-        if (code !== 0 && envelope.ok !== true) {
-          mapCliError(envelope.error);
-        }
-        if (code !== 0) {
-          throw new CodexApiError(
-            "XHS_FAILED",
-            `xhs CLI 搜索失败，退出码 ${code}。`,
-            502,
-            sanitizeDetails(stderr || stdout),
-          );
-        }
+        if (code !== 0 || signal) throw cliExecutionError(stderr, code, signal);
         resolve(normalized);
       } catch (error) {
         reject(error);
