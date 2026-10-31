@@ -1671,3 +1671,36 @@ details .field { margin-top: 10px; }
 .draft-editor .field textarea { min-height: 240px; height: 320px; max-height: 700px; }
 .draft-editor > .soft-button { margin-top: 12px; }
 .materials-panel, .draft-editor, [id^="step-"] { scroll-margin-top: 12px; }
+
+.project-row { display: flex; align-items: center; gap: 2px; padding-right: 6px; border-radius: 18px; }
+.project-row.active { background: linear-gradient(145deg, #bdf2e6, #94ead9); box-shadow: 5px 7px 16px #509d9130, inset 0 2px 5px #ffffffbf; }
+.project-row .project { flex: 1 1 0; min-width: 0; width: 0; padding: 8px 5px; gap: 7px; }
+.project-row .project > span:last-child { flex: 1; min-width: 0; }
+.project-row .project strong, .project-row .project small { max-width: 100%; }
+.project-row .project small { font-size: 10px; }
+.delete-button { flex: none; min-height: 30px; min-width: 42px; padding: 5px 9px; border-radius: 12px; color: #a04868; background: linear-gradient(145deg, #ffe4ed, #fff5f9); box-shadow: 2px 3px 7px #a46e8b16, inset 0 1px 4px #ffffffcc; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.delete-button:hover:not(:disabled) { color: #8e2f53; background: #ffdce8; }
+.project-delete { min-width: 34px; padding: 5px 6px; font-size: 10px; }
+.reference-item-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.reference-item-heading > strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.delete-feedback { display: grid; gap: 5px; margin-top: 10px; padding: 10px; border-radius: 14px; color: #8b6178; background: #fff0f6; font-size: 11px; line-height: 1.6; }
+.delete-feedback > span { overflow-wrap: anywhere; }
+.restore-button { flex: none; min-height: 29px; padding: 5px 9px; border-radius: 11px; color: #286c5c; background: #e6f8f0; font-size: 11px; font-weight: 800; }
+.delete-feedback .restore-button { justify-self: start; }
+.deleted-toggle { margin-top: 10px; font-size: 11px; }
+.deleted-project-list { max-height: 240px; overflow: auto; padding: 3px; border-radius: 14px; background: #f7f0fa; }
+.deleted-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 7px; color: #88788e; font-size: 11px; }
+.deleted-item + .deleted-item { border-top: 1px solid #e8dfee; }
+.deleted-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deleted-references { margin: 13px 0; padding: 9px; border-radius: 16px; background: #f7f0fa; color: #8a718e; font-size: 12px; }
+.project-empty { padding: 0 4px; }
+
+.reference-readline { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 9px 0; }
+.reference-readline small { color: #9a7c63; font-size: 11px; font-weight: 800; line-height: 1.6; }
+.reference-readline .reference-ready { color: #287861; }
+.reference-readline .text-error { color: #a04361; }
+.read-note-button { min-height: 30px; padding: 6px 10px; font-size: 11px; }
+.reference-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.reference-toolbar button { min-height: 33px; padding: 7px 12px; font-size: 11px; }
+.rag-item .reference-read-error, .reference-read-error { margin: 10px 0; padding: 10px 12px; border-radius: 13px; color: #9c4862; background: #fff0f3; font-size: 12px; line-height: 1.7; white-space: normal; }
+.reference-source-link { display: inline-block; margin-top: 6px; color: #337f70; font-size: 12px; text-underline-offset: 3px; }

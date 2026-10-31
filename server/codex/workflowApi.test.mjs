@@ -96,3 +96,33 @@ test("invalid source input is rejected before calling either a provider or a loc
   }
   assert.equal(remote.mock.calls.length, 0); assert.equal(launch.mock.calls.length, 0);
 });
+
+test("note detail API validates input, returns full text, and never forwards raw CLI credentials", async (t) => {
+  const noteId = "64abcdef1234567890abcdef";
+  const body = "正文第一段🌿\n" + "文字".repeat(1000) + "最后一段保留";
+  const launch = t.mock.method(childProcess, "spawn", (_command, args, options) => {
+    assert.equal(options.shell, false);
+    assert.deepEqual(args.slice(2), ["read", noteId, "--json"]);
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
+    queueMicrotask(() => {
+      child.stdout.end(JSON.stringify({ ok: true, data: { items: [{ id: noteId, xsec_token: "private-token", note_card: { title: "完整笔记", desc: body, user: { cookie: "private-cookie" } } }] } }));
+      child.stderr.end(); setImmediate(() => child.emit("close", 0));
+    });
+    return child;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { launch.mock.restore(); syncBuiltinESMExports(); });
+  const invalid = await request("/api/xhs/read", { noteId: "--help" });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.code, "BAD_REQUEST");
+  assert.equal(launch.mock.calls.length, 0);
+  const read = await request("/api/xhs/read", { noteId });
+  assert.equal(read.status, 200);
+  assert.equal(read.body.kind, "xhsNote");
+  assert.equal(read.body.note.body, body);
+  assert.equal(read.body.note.noteId, noteId);
+  assert.ok(read.body.generatedAt);
+  assert.doesNotMatch(JSON.stringify(read.body), /private-token|private-cookie|xsec_token/);
+  assert.equal(launch.mock.calls.length, 1);
+});

@@ -74,7 +74,7 @@ export function materialKey(materials) {
 }
 
 export function referenceKey(references) {
-  return fingerprint(references.map(({ id, title, excerpt, body }) => ({ id, title, excerpt, body })));
+  return fingerprint(references.map(({ id, title, excerpt, body, bodySource }) => ({ id, title, excerpt, body, bodySource })));
 }
 
 export function workflowKey(context) {

@@ -39,15 +39,70 @@ export function rememberedProjectId() {
 }
 
 export function rememberProject(id) {
-  try { localStorage.setItem(ACTIVE_KEY, id); } catch { /* IndexedDB still stores the project. */ }
+  try {
+    if (id) localStorage.setItem(ACTIVE_KEY, id);
+    else localStorage.removeItem(ACTIVE_KEY);
+  } catch { /* IndexedDB still stores the project. */ }
 }
 
 export async function listProjects() {
-  return (await read("index")).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return (await read("index")).filter((item) => !item.deletedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function listDeletedProjects() {
+  return (await read("index")).filter((item) => item.deletedAt).sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
 }
 
 export async function loadProject(id) {
-  return read("projects", id);
+  const record = await read("projects", id);
+  return record?.deletedAt ? undefined : record;
+}
+
+function projectIndex(record) {
+  return {
+    id: record.id,
+    title: record.projectTitle.trim() || record.keyword.trim() || "未命名草稿",
+    updatedAt: record.updatedAt,
+    materialCount: record.sourceMaterials.length,
+    draftCount: record.drafts.length,
+    ...(record.deletedAt ? { deletedAt: record.deletedAt } : {}),
+  };
+}
+
+async function changeDeletedState(id, deleted) {
+  const db = await database();
+  const index = await new Promise((resolve, reject) => {
+    const transaction = db.transaction(["projects", "index"], "readwrite");
+    const request = transaction.objectStore("projects").get(id);
+    let result;
+    let failure;
+    request.onsuccess = () => {
+      try {
+        if (!request.result) throw new Error("未找到这份草稿，请刷新列表后重试。");
+        const record = { ...request.result };
+        if (deleted) record.deletedAt ||= new Date().toISOString();
+        else delete record.deletedAt;
+        result = projectIndex(record);
+        transaction.objectStore("projects").put(record);
+        transaction.objectStore("index").put(result);
+      } catch (error) {
+        failure = error;
+        try { transaction.abort(); } catch { reject(error); }
+      }
+    };
+    transaction.oncomplete = () => resolve(result);
+    transaction.onabort = transaction.onerror = () => reject(failure || new Error(`${deleted ? "删除" : "恢复"}草稿失败，原内容未被更改，请重试。`));
+  });
+  if (deleted && rememberedProjectId() === id) rememberProject(null);
+  return index;
+}
+
+export function deleteProject(id) {
+  return changeDeletedState(id, true);
+}
+
+export function restoreDeletedProject(id) {
+  return changeDeletedState(id, false);
 }
 
 async function backupCover(image) {
@@ -71,20 +126,23 @@ export async function saveProject(project) {
   try { coverImage = await backupCover(coverImage); }
   catch { warning = "文字与流程已保存，封面图片未能备份，请重新点击保存。"; }
   const record = { ...projectSnapshot(project), coverImage, schemaVersion: 1, updatedAt: new Date().toISOString() };
-  const index = {
-    id: record.id,
-    title: record.projectTitle.trim() || record.keyword.trim() || "未命名草稿",
-    updatedAt: record.updatedAt,
-    materialCount: record.sourceMaterials.length,
-    draftCount: record.drafts.length,
-  };
+  const index = projectIndex(record);
   const db = await database();
   await new Promise((resolve, reject) => {
     const transaction = db.transaction(["projects", "index"], "readwrite");
-    transaction.objectStore("projects").put(record);
-    transaction.objectStore("index").put(index);
+    const existing = transaction.objectStore("projects").get(record.id);
+    let deleted = false;
+    existing.onsuccess = () => {
+      if (existing.result?.deletedAt) {
+        deleted = true;
+        transaction.abort();
+        return;
+      }
+      transaction.objectStore("projects").put(record);
+      transaction.objectStore("index").put(index);
+    };
     transaction.oncomplete = resolve;
-    transaction.onabort = transaction.onerror = () => reject(new Error("保存失败：浏览器存储空间不足或不可用。当前内容仍保留在页面，请先复制或导出。"));
+    transaction.onabort = transaction.onerror = () => reject(new Error(deleted ? "这份草稿已删除，请先从「最近删除」恢复后再保存。" : "保存失败：浏览器存储空间不足或不可用。当前内容仍保留在页面，请先复制或导出。"));
   });
   rememberProject(project.id);
   return { index, warning };

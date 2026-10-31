@@ -8,7 +8,7 @@ function storageFixture(t) {
   const preferences = new Map();
   let abortNextWrite = false;
   const previous = Object.fromEntries(["indexedDB", "localStorage"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
-  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key) => preferences.get(key) ?? null, setItem: (key, value) => preferences.set(key, value) } });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key) => preferences.get(key) ?? null, setItem: (key, value) => preferences.set(key, value), removeItem: (key) => preferences.delete(key) } });
   Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: {
     open(name) {
       const request = {};
@@ -21,19 +21,36 @@ function storageFixture(t) {
           close() {},
           transaction(_names, mode) {
             const pending = [];
-            const transaction = {
-              objectStore(store) {
-                return {
-                  put(record) { pending.push(() => stores.get(store).set(record.id, structuredClone(record))); },
-                  get(key) { const result = {}; queueMicrotask(() => { result.result = structuredClone(stores.get(store).get(key)); result.onsuccess?.(); }); return result; },
-                  getAll() { const result = {}; queueMicrotask(() => { result.result = structuredClone([...stores.get(store).values()]); result.onsuccess?.(); }); return result; },
-                };
-              },
-            };
-            queueMicrotask(() => {
+            let reads = 0;
+            let finished = false;
+            const complete = () => queueMicrotask(() => {
+              if (finished || reads) return;
+              finished = true;
               if (mode === "readwrite" && abortNextWrite) { abortNextWrite = false; transaction.onabort?.(); return; }
               pending.forEach((write) => write()); transaction.oncomplete?.();
             });
+            const readRequest = (value) => {
+              const request = {};
+              reads++;
+              queueMicrotask(() => {
+                if (finished) return;
+                request.result = structuredClone(value());
+                try { request.onsuccess?.(); }
+                finally { reads--; complete(); }
+              });
+              return request;
+            };
+            const transaction = {
+              abort() { if (!finished) { finished = true; queueMicrotask(() => transaction.onabort?.()); } },
+              objectStore(store) {
+                return {
+                  put(record) { pending.push(() => stores.get(store).set(record.id, structuredClone(record))); },
+                  get(key) { return readRequest(() => stores.get(store).get(key)); },
+                  getAll() { return readRequest(() => [...stores.get(store).values()]); },
+                };
+              },
+            };
+            complete();
             return transaction;
           },
         };
@@ -105,4 +122,74 @@ test("cover download failure still saves text and returns an explicit partial-sa
   const result = await store.saveProject({ ...project, coverImage: { src: "/generated/covers/cover-404-abc.png" } });
   assert.match(result.warning, /封面图片未能备份/);
   assert.equal((await store.loadProject(project.id)).drafts[0].body, "已编辑的正文");
+});
+
+test("deleted drafts stay hidden after a reload and recover their complete source and cover data", async (t) => {
+  storageFixture(t);
+  const store = await import(`./workspaceStore.js?delete=${Date.now()}`);
+  const blob = new Blob(["cover backup"], { type: "image/png" });
+  await store.saveProject({ ...project, coverImage: { src: "blob:fixture", storageBlob: blob } });
+  await store.deleteProject(project.id);
+  assert.equal((await store.listProjects()).length, 0);
+  assert.equal(await store.loadProject(project.id), undefined);
+  assert.equal(store.rememberedProjectId(), null);
+  const reload = await import(`./workspaceStore.js?deleted-reload=${Date.now()}`);
+  assert.equal((await reload.listProjects()).length, 0);
+  assert.equal((await reload.listDeletedProjects())[0].id, project.id);
+  await reload.restoreDeletedProject(project.id);
+  const restored = await reload.loadProject(project.id);
+  assert.equal(restored.sourceMaterials[0].content, project.sourceMaterials[0].content);
+  assert.equal(restored.drafts[0].body, project.drafts[0].body);
+  assert.equal(await restored.coverImage.storageBlob.text(), "cover backup");
+  assert.equal((await reload.listDeletedProjects()).length, 0);
+});
+
+test("late autosaves cannot resurrect a deleted project or overwrite its recoverable contents", async (t) => {
+  storageFixture(t);
+  const store = await import(`./workspaceStore.js?tombstone=${Date.now()}`);
+  await store.saveProject(project);
+  await store.deleteProject(project.id);
+  await assert.rejects(store.saveProject({ ...project, drafts: [{ id: "draft-1", body: "stale autosave" }] }), /已删除/);
+  assert.equal((await store.listProjects()).length, 0);
+  assert.equal((await store.listDeletedProjects()).length, 1);
+  await store.restoreDeletedProject(project.id);
+  assert.equal((await store.loadProject(project.id)).drafts[0].body, project.drafts[0].body);
+});
+
+test("deleting another draft leaves the current draft and active project selection intact", async (t) => {
+  storageFixture(t);
+  const store = await import(`./workspaceStore.js?inactive=${Date.now()}`);
+  await store.saveProject(project);
+  await store.saveProject({ ...project, id: "current-project" });
+  await store.deleteProject(project.id);
+  assert.equal(store.rememberedProjectId(), "current-project");
+  assert.equal((await store.listProjects())[0].id, "current-project");
+  assert.equal((await store.loadProject("current-project")).drafts[0].body, project.drafts[0].body);
+});
+
+test("failed delete and restore transactions preserve the prior active or deleted state", async (t) => {
+  const fixture = storageFixture(t);
+  const store = await import(`./workspaceStore.js?delete-abort=${Date.now()}`);
+  await store.saveProject(project);
+  fixture.abortNext();
+  await assert.rejects(store.deleteProject(project.id), /删除草稿失败/);
+  assert.equal((await store.listProjects()).length, 1);
+  assert.equal((await store.listDeletedProjects()).length, 0);
+  await store.deleteProject(project.id);
+  fixture.abortNext();
+  await assert.rejects(store.restoreDeletedProject(project.id), /恢复草稿失败/);
+  assert.equal((await store.listProjects()).length, 0);
+  assert.equal((await store.listDeletedProjects()).length, 1);
+});
+
+test("deleted reference text is saved with its project for restoration after reload", async (t) => {
+  storageFixture(t);
+  const store = await import(`./workspaceStore.js?deleted-reference=${Date.now()}`);
+  const deletedReferences = [{ id: "reference-1", title: "参考原文", body: "保留完整正文与来源", source: "manual", deletedAt: new Date().toISOString(), originalPosition: 0 }];
+  await store.saveProject({ ...project, ragItems: [], selectedSearchIds: [], deletedReferences });
+  const reload = await import(`./workspaceStore.js?reference-reload=${Date.now()}`);
+  const restored = await reload.loadProject(project.id);
+  assert.deepEqual(restored.ragItems, []);
+  assert.deepEqual(restored.selectedSearchIds, []);
+  assert.deepEqual(restored.deletedReferences, deletedReferences);
 });

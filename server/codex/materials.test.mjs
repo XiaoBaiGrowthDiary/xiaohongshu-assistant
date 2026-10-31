@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { LIMITS, contextError, draftMarkdown, materialKey, readMaterialFile, referenceAnalysisKey, workflowKey } from "../../shared/workflow.mjs";
-import { projectSnapshot } from "../../shared/project.mjs";
+import { hasProjectContentChanges, projectSnapshot } from "../../shared/project.mjs";
 import { buildCodexPrompt, buildDecisionPrompt } from "./prompts.mjs";
 import { normalizeCodexItems, validateDecisionRequest, validateRequest } from "./validation.mjs";
 
@@ -119,4 +119,11 @@ test("Markdown exports contain only the chosen title and body", () => {
   const exported = draftMarkdown({ ...draft, sourceMaterials: [material], apiKey: "PRIVATE_KEY" });
   assert.equal(exported, `# ${draft.title}\n\n${draft.body}\n`);
   assert.ok(!exported.includes("PRIVATE_KEY"));
+});
+
+test("navigation alone does not create an empty draft, while actual edits remain saveable", () => {
+  const saved = { id: "empty-workspace", projectTitle: "", activeStep: "input", ragItems: [], sourceMaterials: [] };
+  assert.equal(hasProjectContentChanges({ ...saved, activeStep: "rag" }, saved), false);
+  assert.equal(hasProjectContentChanges({ ...saved, projectTitle: "我的新稿" }, saved), true);
+  assert.equal(hasProjectContentChanges({ ...saved, materialInputContent: "还没加入的素材" }, saved), true);
 });

@@ -8,6 +8,11 @@ async function requestJson(endpoint, payload, fallbackMessage, badJsonCode) {
   });
 
   const text = await response.text();
+  if (endpoint === "/api/xhs/read" && (response.status === 404 || (response.ok && /^\s*(?:<!doctype\s+html|<html\b)/i.test(text)))) {
+    throw Object.assign(new Error("当前薄荷工坊后台尚未加载正文读取接口。请先保存草稿，关闭原来的启动窗口，再重新启动薄荷工坊并刷新页面。"), {
+      code: "XHS_SERVICE_OUTDATED",
+    });
+  }
   let data;
   try {
     data = JSON.parse(text);
@@ -155,6 +160,18 @@ export async function requestXhsSearch(payload) {
     {
       nonJson: "小红书搜索服务返回了非 JSON 内容。",
       failed: "小红书热门内容搜索失败。",
+    },
+    "XHS_BAD_JSON",
+  );
+}
+
+export async function requestXhsRead(payload) {
+  return requestJson(
+    "/api/xhs/read",
+    payload,
+    {
+      nonJson: "笔记正文读取服务返回了非 JSON 内容。",
+      failed: "小红书笔记正文读取失败。",
     },
     "XHS_BAD_JSON",
   );

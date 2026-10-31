@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { resolveNpmCli } from "../server/localCli/commandPaths.mjs";
+import { supportsNoteReading } from "./serviceProbe.mjs";
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const host = "127.0.0.1";
@@ -90,11 +91,15 @@ async function waitForServer() {
 }
 
 if (await isAppRunning()) {
-  console.log(`Mint Atelier is already running at ${url}.`);
-  openBrowser();
-  process.exit(0);
-}
-
+  if (!(await supportsNoteReading(url))) {
+    console.error("检测到已运行的薄荷工坊缺少正文读取接口，或该接口暂时无法响应。");
+    console.error("请先保存草稿，在原启动窗口按 q 并回车（或关闭该窗口），再重新运行启动脚本。");
+    process.exitCode = 1;
+  } else {
+    console.log(`Mint Atelier is already running at ${url}.`);
+    openBrowser();
+  }
+} else {
 installDependenciesIfNeeded();
 
 console.log("Starting Mint Atelier");
@@ -181,3 +186,4 @@ server.on("exit", (code, signal) => {
   if (signal === "SIGTERM") process.exit(143);
   process.exit(code ?? 0);
 });
+}

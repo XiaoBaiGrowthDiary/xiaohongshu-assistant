@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MaterialsPanel } from "./MaterialsPanel.jsx";
 import { ReferenceLibrary } from "./ReferenceLibrary.jsx";
+import { ProjectLibrary } from "./ProjectLibrary.jsx";
 import { useWorkspace } from "./useWorkspace.js";
 import { LIMITS, contextError, draftMarkdown, fingerprint, materialKey, referenceAnalysisKey, selectedMaterials, workflowKey } from "../shared/workflow.mjs";
+import { readReferenceNotes, referenceBodyProblem, referencePromptItems } from "../shared/noteDetails.mjs";
 import {
   requestCloudCoverImage,
   requestCloudDecision,
@@ -12,6 +14,7 @@ import {
   requestLocalCliDetection,
   requestLocalCliGeneration,
   requestXhsSearch,
+  requestXhsRead,
 } from "./codexClient.js";
 
 const STORAGE_PREFIX = "mint-atelier-v2";
@@ -343,6 +346,7 @@ export function App() {
   const [searchResults, setSearchResults] = field("searchResults");
   const [selectedSearchIds, setSelectedSearchIds] = field("selectedSearchIds");
   const [ragItems, setRagItems] = field("ragItems");
+  const [deletedReferences] = field("deletedReferences");
   const [topics, setTopics] = field("topics");
   const [selectedTopicId, setSelectedTopicId] = field("selectedTopicId");
   const [drafts, setDrafts] = field("drafts");
@@ -351,6 +355,7 @@ export function App() {
   const [selectedPromptId, setSelectedPromptId] = field("selectedPromptId");
   const [coverImage, setCoverImage] = field("coverImage");
   const [generatingKind, setGeneratingKind] = useState("");
+  const [readProgress, setReadProgress] = useState(null);
   const [automationRunning, setAutomationRunning] = useState(false);
   const [automationStage, setAutomationStage] = useState("");
   const [cliStatus, setCliStatus] = useState({
@@ -610,6 +615,12 @@ export function App() {
     return true;
   };
 
+  const requireReferenceBodies = (context = workflowContext()) => {
+    const problem = referenceBodyProblem(context.ragItems);
+    if (problem) { setCustomError(problem); return false; }
+    return true;
+  };
+
   const requestTextItems = async (kind, payload = {}, contextOverrides = {}) => {
     const requestGeneration =
       channelConfig("text").provider === "cloud" ? requestCloudGeneration : requestLocalCliGeneration;
@@ -619,6 +630,7 @@ export function App() {
     const result = await requestGeneration({
       kind,
       ...context,
+      ragItems: referencePromptItems(context.ragItems),
       ...requestPayloadConfig("text"),
       ...payload,
     });
@@ -653,6 +665,7 @@ export function App() {
     const result = await requestModelDecision({
       decisionKind,
       ...context,
+      ragItems: referencePromptItems(context.ragItems),
       options,
       ...requestPayloadConfig("text"),
       ...payload,
@@ -686,7 +699,7 @@ export function App() {
     });
   };
 
-  const runTextGeneration = async (kind, payload) => {
+  const runTextGeneration = async (kind, payload, contextOverrides = {}) => {
     const label = generationLabels[kind];
     const routeLabel = providerLabel("text");
     setGeneratingKind(kind);
@@ -701,7 +714,7 @@ export function App() {
     });
 
     try {
-      const result = await requestTextItems(kind, payload);
+      const result = await requestTextItems(kind, payload, contextOverrides);
 
       setCliStatus({
         state: "success",
@@ -811,7 +824,42 @@ export function App() {
     );
   };
 
-  const addToRag = () => {
+  const fetchReferenceBodies = async (items, selectedIds) => {
+    setGeneratingKind("read");
+    const started = Date.now();
+    const result = await readReferenceNotes(items, {
+      readNote: requestXhsRead,
+      selectedIds,
+      onProgress: (progress) => {
+        setReadProgress(progress);
+        setCliStatus({ state: "running", label: "小红书正文读取", text: `正在读取 ${progress.index}/${progress.total}：「${progress.title}」`, commandPreview: "xhs --cookie-source none read [note-id] --json", durationMs: null, generatedAt: "", code: "" });
+      },
+      onUpdate: (updated) => { setRagItems(updated); setReferenceAnalysis(null); },
+    });
+    return { ...result, durationMs: Date.now() - started };
+  };
+
+  const showReadResult = (result) => {
+    const failed = result.failures.length || result.remaining;
+    setCliStatus({ state: failed ? "error" : "success", label: "小红书正文读取", text: result.loaded ? `已读取 ${result.loaded} 篇正文${failed ? `，仍有 ${result.failures.length + result.remaining} 篇未完成。` : "。"}` : failed ? result.failures[0]?.message || "部分参考未能读取正文。" : "选中参考已有正文。", commandPreview: "xhs --cookie-source none read [note-id] --json", durationMs: result.durationMs, generatedAt: new Date().toISOString(), code: result.failures[0]?.code || "" });
+  };
+
+  const readReferences = async (id) => {
+    if (!ragItems.length) { setCustomError("请先加入热门参考。"); return; }
+    try {
+      const result = await fetchReferenceBodies(ragItems, id ? [id] : undefined);
+      showReadResult(result);
+      if (result.failures.length || result.remaining) setCustomError(`正文读取未全部完成：${result.failures[0]?.message || "请重试未读参考。"}`);
+      else {
+        const problem = contextError({ ragItems: result.items });
+        if (problem) setCustomError(`正文已完整读取并保留。${problem}`);
+        else setSuccess(`已读取 ${result.loaded} 篇正文，可展开查看原文或分析参考写法。`);
+      }
+    } catch (error) { setCustomError(error.message || "正文读取失败。"); }
+    finally { setReadProgress(null); setGeneratingKind(""); }
+  };
+
+  const addToRag = async () => {
     if (selectedSearchIds.length === 0) {
       setError("rag");
       return;
@@ -823,12 +871,19 @@ export function App() {
       setCustomError(`最多使用 ${LIMITS.references} 条热门参考，请减少勾选或移除旧参考。`);
       return;
     }
-    setRagItems((current) => {
-      const existingIds = new Set(current.map((item) => item.id));
-      return [...current, ...selectedItems.filter((item) => !existingIds.has(item.id))];
-    });
+    const existingIds = new Set(ragItems.map((item) => item.id));
+    const nextItems = [...ragItems, ...selectedItems.filter((item) => !existingIds.has(item.id))];
+    setRagItems(nextItems);
     setActiveStep("rag");
-    setSuccess(`已确认 ${selectedItems.length} 条热门参考，后续生成将结合这些文字学习写法。`);
+    try {
+      const result = await fetchReferenceBodies(nextItems, selectedSearchIds);
+      showReadResult(result);
+      const problem = contextError({ ragItems: result.items });
+      if (result.failures.length || result.remaining) setCustomError(`参考已加入，但部分正文未读取：${result.failures[0]?.message || "请点击重试读取。"}`);
+      else if (problem) setCustomError(`参考正文已完整保留。${problem}`);
+      else setSuccess(`已加入参考并读取 ${result.loaded} 篇正文，可继续分析写法。`);
+    } catch (error) { setCustomError(error.message || "参考已加入，正文读取失败，请重试。"); }
+    finally { setReadProgress(null); setGeneratingKind(""); }
   };
 
   const generateTopics = async () => {
@@ -836,7 +891,7 @@ export function App() {
       setError("topics");
       return;
     }
-    if (!requireTextModel() || !requireContext()) return;
+    if (!requireTextModel() || !requireContext() || !requireReferenceBodies()) return;
 
     const result = await runTextGeneration("topics", {});
     if (!result) return;
@@ -858,7 +913,7 @@ export function App() {
       setError("drafts");
       return;
     }
-    if (!requireTextModel() || !requireContext()) return;
+    if (!requireTextModel() || !requireContext() || !requireReferenceBodies()) return;
 
     const result = await runTextGeneration("drafts", { selectedTopic });
     if (!result) return;
@@ -879,7 +934,7 @@ export function App() {
       setError("prompts");
       return;
     }
-    if (!requireTextModel() || !requireContext()) return;
+    if (!requireTextModel() || !requireContext() || !requireReferenceBodies()) return;
 
     const result = await runTextGeneration("coverPrompts", {
       selectedTopic,
@@ -969,8 +1024,17 @@ export function App() {
   const analyzeReferences = async () => {
     if (!ragItems.length) { setCustomError("请先加入热门参考。"); return; }
     if (!requireTextModel() || !requireContext()) return;
-    const result = await runTextGeneration("referenceAnalysis", {});
-    if (result) setReferenceAnalysis({ ...result.items[0], sourceKey: currentReferenceKey });
+    try {
+      const readResult = await fetchReferenceBodies(ragItems);
+      showReadResult(readResult);
+      const context = workflowContext({ ragItems: readResult.items, referenceAnalysis: null });
+      const problem = referenceBodyProblem(context.ragItems) || contextError(context);
+      if (problem) throw new Error(`${readResult.failures[0]?.message || ""} ${problem}`.trim());
+      setReadProgress(null);
+      const result = await runTextGeneration("referenceAnalysis", {}, context);
+      if (result) setReferenceAnalysis({ ...result.items[0], sourceKey: referenceAnalysisKey(context) });
+    } catch (error) { setCustomError(`暂未分析全文：${error.message}`); }
+    finally { setReadProgress(null); setGeneratingKind(""); }
   };
 
   const reviewDraft = async () => {
@@ -1022,6 +1086,13 @@ export function App() {
         const decision = await requestDecision("rag", search.items, context);
         context.ragItems = search.items.filter((item) => decision.selectedIds.includes(item.id));
         setSelectedSearchIds(decision.selectedIds); setRagItems(context.ragItems); setActiveStep("rag");
+        move("读取选中笔记正文");
+        const readResult = await fetchReferenceBodies(context.ragItems);
+        context.ragItems = readResult.items;
+        showReadResult(readResult);
+        const readProblem = referenceBodyProblem(context.ragItems) || contextError(context);
+        if (readProblem) throw Object.assign(new Error(`${readResult.failures[0]?.message || ""} ${readProblem}`.trim()), { code: readResult.failures[0]?.code || "XHS_BODY_REQUIRED" });
+        setReadProgress(null);
         const [analysis] = await generate("referenceAnalysis");
         context.referenceAnalysis = { ...analysis, sourceKey: referenceAnalysisKey(context) };
         setReferenceAnalysis(context.referenceAnalysis);
@@ -1059,7 +1130,7 @@ export function App() {
       setCliStatus({ state: "error", label: `自动化：${stage}`, text: message, commandPreview: "", durationMs: null, generatedAt: "", code: error?.code || "AUTOMATION_FAILED" });
       setCustomError(`自动化在「${stage}」中断：${message} 已完成内容已保留，可手动继续。`);
     } finally {
-      setAutomationRunning(false); setAutomationStage(""); setGeneratingKind("");
+      setAutomationRunning(false); setAutomationStage(""); setGeneratingKind(""); setReadProgress(null);
     }
   };
 
@@ -1076,6 +1147,24 @@ export function App() {
   const newProject = async (reuse = false) => {
     try { await workspace.create(reuse); setSuccess(reuse ? "已复用素材新建草稿，请填写这篇的关键词和创作要求。" : "已新建草稿，上一份内容已保存。"); }
     catch (error) { setCustomError(error.message); }
+  };
+
+  const deleteDraftProject = async (id) => {
+    try { const removed = await workspace.remove(id); setSuccess(`已删除「${removed.title}」，可通过撤销或最近删除恢复。`); }
+    catch (error) { setCustomError(error.message); }
+  };
+
+  const restoreDraftProject = async (id) => {
+    try { const restored = await workspace.recover(id); setSuccess(`已恢复「${restored.title}」，素材和生成结果均已保留。`); }
+    catch (error) { setCustomError(error.message); }
+  };
+
+  const changeReference = async (id, recover = false) => {
+    try {
+      const result = await workspace.changeReference(id, recover);
+      if (result?.warning) setCustomError(result.warning);
+      else setSuccess(recover ? "参考已恢复并保存，可重新分析写法。" : "参考已删除并保存，已同步取消搜索勾选；可从已删除参考中恢复。");
+    } catch (error) { setCustomError(error.message); }
   };
 
   const editDraft = (patch) => {
@@ -1144,23 +1233,9 @@ export function App() {
           ))}
         </section>
 
-        <section className="project-list">
-          <header>
-            <h3>草稿项目</h3>
-            <div className="project-actions"><button type="button" disabled={isBusy} onClick={() => newProject()}>新建</button><button type="button" disabled={!workspace.ready} onClick={saveDraft}>保存</button></div>
-          </header>
-          {workspace.projects.map((project) => (
-            <button key={project.id} className={project.id === workspace.project.id ? "project active" : "project"} disabled={isBusy} type="button" onClick={() => switchProject(project.id)}>
-              <SoftIcon tone={project.id === workspace.project.id ? "mint" : "pink"}>稿</SoftIcon>
-              <span>
-                <strong>{project.title}</strong>
-                <small>{project.materialCount} 条素材 · {project.draftCount} 篇文案</small>
-              </span>
-            </button>
-          ))}
-        </section>
+        <ProjectLibrary projects={workspace.projects} deletedProjects={workspace.deletedProjects} currentId={workspace.project.id} lastDeleted={workspace.lastDeleted} busy={isBusy} canSave={workspace.ready && !workspace.switching} onNew={() => newProject()} onSave={saveDraft} onOpen={switchProject} onDelete={deleteDraftProject} onRestore={restoreDraftProject} />
 
-        <button className="settings-button" type="button" disabled={!workspace.ready} onClick={saveDraft}>
+        <button className="settings-button" type="button" disabled={!workspace.ready || workspace.switching} onClick={saveDraft}>
           <SoftIcon tone="lavender">收</SoftIcon>
           <span>{workspace.status.text}</span>
         </button>
@@ -1312,9 +1387,9 @@ export function App() {
               tone="mint"
               title="热门文字参考"
               meta="学习写法，事实以你的素材为依据"
-              action={<button className="soft-button mint" disabled={isBusy} type="button" onClick={addToRag}>加入参考</button>}
+              action={<button className="soft-button mint" disabled={isBusy} type="button" onClick={addToRag}>加入并读取正文</button>}
             />
-            <ReferenceLibrary key={workspace.project.id} items={ragItems} onChange={setRagItems} busy={isBusy} analysis={referenceAnalysis} analysisCurrent={referenceAnalysisCurrent} onAnalyze={analyzeReferences} onMessage={(message, error) => error ? setCustomError(message) : setSuccess(message)} />
+            <ReferenceLibrary key={workspace.project.id} items={ragItems} deletedItems={deletedReferences} onChange={setRagItems} onDelete={(id) => changeReference(id)} onRestore={(id) => changeReference(id, true)} onRead={readReferences} readProgress={readProgress} busy={isBusy} analysis={referenceAnalysis} analysisCurrent={referenceAnalysisCurrent} onAnalyze={analyzeReferences} onMessage={(message, error) => error ? setCustomError(message) : setSuccess(message)} />
           </article>
         </section>
 

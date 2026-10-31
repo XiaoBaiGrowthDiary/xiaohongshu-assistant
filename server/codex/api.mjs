@@ -19,7 +19,9 @@ import {
   validateRequest,
 } from "./validation.mjs";
 import {
+  runXhsRead,
   runXhsSearch,
+  validateXhsReadRequest,
   validateXhsSearchRequest,
 } from "../xhs/runXhs.mjs";
 import {
@@ -97,6 +99,7 @@ export function codexGenerateMiddleware() {
       "/api/cloud/decide",
       "/api/cloud/cover-image",
       "/api/xhs/search",
+      "/api/xhs/read",
     ]);
 
     if (!handledPath.has(requestUrl.pathname)) {
@@ -138,6 +141,19 @@ export function codexGenerateMiddleware() {
           hasMore: searchResult.hasMore,
           commandPreview: searchResult.commandPreview,
           durationMs: searchResult.durationMs,
+          generatedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (requestUrl.pathname === "/api/xhs/read") {
+        const readResult = await runXhsRead(validateXhsReadRequest(payload));
+        sendJson(res, 200, {
+          ok: true,
+          kind: "xhsNote",
+          note: readResult.note,
+          commandPreview: readResult.commandPreview,
+          durationMs: readResult.durationMs,
           generatedAt: new Date().toISOString(),
         });
         return;
