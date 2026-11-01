@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { accountId, accountInput, accountInputProblem, accountSamples, accountSourceKey, confirmAccountCandidate, mergeAccountPosts } from "../shared/account.mjs";
+import { accountId, accountInput, accountInputProblem, accountSamples, accountSourceKey, confirmAccountCandidate, mergeAccountPosts, refreshAccountProfile } from "../shared/account.mjs";
 import { AccountReview } from "./AccountReview.jsx";
+import { AccountAvatar } from "./AccountAvatar.jsx";
 import { loadAccount, saveAccount } from "./accountStore.js";
 import { requestAccountNote, requestAccountPosts, requestAccountProfile } from "./codexClient.js";
 
 const STOP_CODES = new Set(["XHS_AUTH_REQUIRED", "XHS_VERIFY_REQUIRED", "XHS_RATE_OR_IP_BLOCKED", "XHS_RUNTIME_ERROR", "XHS_CLI_UNAVAILABLE", "XHS_CACHE_ENCODING_ERROR", "XHS_TEXT_ENCODING_ERROR", "XHS_SERVICE_OUTDATED", "XHS_ACCOUNT_MISMATCH"]);
 
-export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, onReady, onMessage, mode, onMode, draftVersion, onUseLatest }) {
+export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, onProfile, onReady, onMessage, mode, onMode, draftVersion, onUseLatest }) {
   const [record, setRecord] = useState(null);
   const [url, setUrl] = useState("");
   const [preview, setPreview] = useState(null);
@@ -17,14 +18,15 @@ export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, o
   const [analysisStartedAt, setAnalysisStartedAt] = useState(0);
   const reviewRef = useRef(null);
   const ref = useRef(null), queue = useRef(Promise.resolve()), timer = useRef(null), locked = useRef(false);
-  const callbacks = useRef({ onVersion, onReady, onMessage });
-  callbacks.current = { onVersion, onReady, onMessage };
+  const callbacks = useRef({ onVersion, onProfile, onReady, onMessage });
+  callbacks.current = { onVersion, onProfile, onReady, onMessage };
   useEffect(() => {
     let cancelled = false;
     loadAccount().then((saved) => {
       if (cancelled) return;
       ref.current = saved; setRecord(saved); setUrl(saved?.profile?.source || "");
       callbacks.current.onVersion(saved?.versions?.at(-1) || null);
+      callbacks.current.onProfile?.(saved?.profile || null);
       setSaveStatus(saved ? "本地账号数据已恢复" : "账号数据独立于草稿保存");
     }).catch((error) => { if (!cancelled) { setSaveStatus(error.message); callbacks.current.onMessage(error.message, true); } })
       .finally(() => { if (!cancelled) { setReady(true); callbacks.current.onReady(); } });
@@ -38,6 +40,7 @@ export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, o
   const commit = async (next, activate = false) => {
     await write(next);
     ref.current = next; setRecord(next); setSaveStatus("账号数据已保存");
+    onProfile?.(next.profile);
     if (activate) onVersion(next.versions?.at(-1) || null);
     return next;
   };
@@ -120,7 +123,7 @@ export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, o
     <div className="materials-heading"><div><span className="eyebrow">我的账号</span><h2>让创作延续你的账号特点</h2><p>自动读取历史文字、分析并由你确认。正式档案可在后续草稿中复用。</p></div><span className="account-save-status" role="status">{saveStatus || "正在恢复账号档案…"}</span></div>
     <label className="field"><span>小红书账号主页链接</span><input value={url} disabled={disabled} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.xiaohongshu.com/user/profile/…" /></label>
     <button type="button" className="soft-button mint" disabled={disabled} onClick={() => run(async () => { const userId = accountId(url); setProgress("正在读取账号资料…"); const result = await requestAccountProfile({ userId }); setPreview(result.profile); })}>读取账号资料</button>
-    {preview ? <div className="analysis-box"><strong>{preview.nickname || "未返回昵称"}</strong><p>{preview.bio || "暂无简介"}</p><p>粉丝：{preview.followers ?? "未获取"} · 账号编号：{preview.userId}</p><button type="button" className="soft-button mint" disabled={disabled} onClick={() => run(async () => { const stored = preview.userId === ref.current?.profile.userId ? ref.current : await loadAccount(preview.userId); await commit({ ...(stored || { goal: "", facts: "", samples: [], versions: [], candidate: null }), profile: preview }, true); setPreview(null); onMessage("账号已确认，可建立档案或同步作品。切换账号后，原账号档案仍保留在此浏览器。"); })}>确认使用这个账号</button><button type="button" className="text-button" disabled={disabled} onClick={() => setPreview(null)}>取消</button></div> : null}
+    {preview ? <div className="analysis-box"><div className="account-preview-identity"><AccountAvatar profile={preview} /><strong>{preview.nickname || "未返回昵称"}</strong></div><p>{preview.bio || "暂无简介"}</p><p>粉丝：{preview.followers ?? "未获取"} · 账号编号：{preview.userId}</p><button type="button" className="soft-button mint" disabled={disabled} onClick={() => run(async () => { const stored = preview.userId === ref.current?.profile.userId ? ref.current : await loadAccount(preview.userId); await commit(refreshAccountProfile(stored || { goal: "", facts: "", samples: [], versions: [], candidate: null }, preview), true); setPreview(null); onMessage("账号已确认，可建立档案或同步作品。切换账号后，原账号档案仍保留在此浏览器。"); })}>确认使用这个账号</button><button type="button" className="text-button" disabled={disabled} onClick={() => setPreview(null)}>取消</button></div> : null}
     {record ? <>
       <p className="help-text">当前账号：{record.profile.nickname || record.profile.userId} · 粉丝 {record.profile.followers ?? "未获取"} · {record.syncedAt ? `作品同步于 ${new Date(record.syncedAt).toLocaleString("zh-CN")}` : "尚未同步作品"}</p>
       <label className="field"><span>接下来的运营目标</span><textarea value={record.goal || ""} maxLength={2000} disabled={disabled} onChange={(event) => edit((current) => ({ ...current, goal: event.target.value }))} placeholder="例如：继续分享供应链求职经历，帮助应届生，逐步拓展到入职后的真实成长。" /></label>

@@ -1,4 +1,4 @@
-# DESIGN.md
+# 小红书创作站视觉规范
 
 ## 视觉方向
 
@@ -61,10 +61,14 @@
 
 当前设计依赖这些本地资产：
 
-- `public/assets/avatar-creator.png`
+- 账号头像使用当前已连接小红书账号返回的公开图片地址，缺失时显示明确占位。
 - `public/assets/notebook-pencil.png`
 - `public/assets/spring-outfit.png`
 
 新增或替换资产必须匹配当前软糖/黏土 3D 风格，并与马卡龙色系一致。不要使用低质量占位图、普通 emoji、ASCII 图形、粗糙 CSS 绘图或不匹配的 stock 图片。
 
 `notebook-pencil.png` 当前通过 CSS 遮罩与顶部概览卡片融合。如果要进一步提高保真度，应生成透明背景或干净抠图版本，而不是用普通图标替代。
+
+## 品牌与创作者展示
+
+使用“小红书创作站 / XHS Creator Station”作为项目品牌，侧栏与笔记预览作者显示已连接账号的真实昵称和小红书头像，例如“小白的成长日记”。保持现有三栏和马卡龙配色；侧栏昵称字号适配较长名称，保持单行可读。项目品牌由 `shared/branding.mjs` 管理，个人信息来自已连接账号；长昵称省略显示并保留完整 title，头像缺失时使用明确占位。

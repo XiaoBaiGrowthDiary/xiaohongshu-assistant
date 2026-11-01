@@ -15,7 +15,8 @@ export function accountId(value) {
 
 export function accountSamples(record) { return (record.samples || []).filter((note) => note.enabled); }
 export function accountInput(record) {
-  return { profile: record.profile, goal: record.goal || "", facts: record.facts || "", samples: accountSamples(record).map(({ noteId, title, body, metrics, publishedAt, feedback }) => ({ noteId, title, body, metrics, publishedAt, feedback })), previous: record.versions?.at(-1)?.analysis || null };
+  const { userId, nickname, bio, redId, followers, source, fetchedAt } = record.profile || {};
+  return { profile: { userId, nickname, bio, redId, followers, source, fetchedAt }, goal: record.goal || "", facts: record.facts || "", samples: accountSamples(record).map(({ noteId, title, body, metrics, publishedAt, feedback }) => ({ noteId, title, body, metrics, publishedAt, feedback })), previous: record.versions?.at(-1)?.analysis || null };
 }
 export function accountInputProblem(input) {
   if (!input || !ID.test(input.profile?.userId || "")) return "请先读取并确认账号。";
@@ -49,6 +50,14 @@ export function accountProfileProblem(profile) {
   return portraitProblem(profile.analysis);
 }
 export function accountSourceKey(record) { const { previous, ...input } = accountInput(record); return fingerprint(input); }
+
+export function refreshAccountProfile(record, profile) {
+  const next = { ...record, profile };
+  const sameContent = ["userId", "nickname", "bio", "redId", "followers", "source"].every((key) => (record.profile?.[key] ?? null) === (profile[key] ?? null));
+  // Fetch time and a newly available avatar do not change an existing analysis.
+  if (sameContent && record.candidate?.sourceKey === accountSourceKey(record)) next.candidate = { ...record.candidate, sourceKey: accountSourceKey(next) };
+  return next;
+}
 
 export function mergeAccountPosts(record, incoming, older = false) {
   const old = new Map((record.samples || []).map((note) => [note.noteId, note]));

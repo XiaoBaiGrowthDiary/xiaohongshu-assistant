@@ -4,6 +4,10 @@ import { ReferenceLibrary } from "./ReferenceLibrary.jsx";
 import { ProjectLibrary } from "./ProjectLibrary.jsx";
 import { AccountPanel } from "./AccountPanel.jsx";
 import { accountWritingContext } from "../shared/account.mjs";
+import { APP_NAME, APP_ENGLISH_NAME } from "../shared/branding.mjs";
+import { accountDisplayName } from "../shared/accountIdentity.mjs";
+import { AccountAvatar } from "./AccountAvatar.jsx";
+import { STORAGE_KEYS } from "../shared/legacyCompatibility.mjs";
 import { useWorkspace } from "./useWorkspace.js";
 import { LIMITS, contextError, draftMarkdown, fingerprint, materialKey, referenceAnalysisKey, selectedMaterials, workflowKey } from "../shared/workflow.mjs";
 import { readReferenceNotes, referenceBodyProblem, referencePromptItems } from "../shared/noteDetails.mjs";
@@ -19,7 +23,7 @@ import {
   requestXhsRead,
 } from "./codexClient.js";
 
-const STORAGE_PREFIX = "mint-atelier-v2";
+const STORAGE_PREFIX = STORAGE_KEYS.preferencesPrefix;
 
 const defaultPersona = "26 岁轻熟风穿搭博主，分享通勤、周末出行和约会搭配。表达温柔具体，重点放在真实穿着体验、单品组合和可复用公式。";
 const defaultKeyword = "夏日通勤穿搭";
@@ -346,6 +350,8 @@ export function App() {
   const [accountSnapshot, setAccountSnapshot] = field("accountSnapshot");
   const [accountMode, setAccountMode] = field("accountMode");
   const [accountVersion, setAccountVersion] = useState(null);
+  const [connectedAccount, setConnectedAccount] = useState(null);
+  const creatorName = accountDisplayName(connectedAccount);
   const [accountReady, setAccountReady] = useState(false);
   const [accountBusy, setAccountBusy] = useState(false);
   const accountProfile = useMemo(() => accountWritingContext(accountSnapshot || accountVersion, accountMode), [accountSnapshot, accountVersion, accountMode]);
@@ -1207,21 +1213,21 @@ export function App() {
   };
 
   return (
-    <main className="app-shell" aria-label="薄荷工坊新版小红书 AI 助理">
+    <main className="app-shell" aria-label={`${APP_NAME}内容创作工作台`}>
       <aside className="sidebar clay-panel">
         <div className="brand">
-          <SoftIcon tone="mint">叶</SoftIcon>
+          <SoftIcon tone="mint">创</SoftIcon>
           <div>
-            <h1>薄荷工坊</h1>
-            <p>Mint Atelier</p>
+            <h1>{APP_NAME}</h1>
+            <p>{APP_ENGLISH_NAME}</p>
           </div>
         </div>
 
         <section className="profile-card">
-          <img src="/assets/avatar-creator.png" alt="薄荷小丸子头像" />
+          <AccountAvatar profile={connectedAccount} />
           <div>
-            <h2>薄荷小丸子</h2>
-            <span>内容创作助理</span>
+            <h2 title={creatorName}>{creatorName}</h2>
+            <span>{connectedAccount ? connectedAccount.followers != null ? `${connectedAccount.followers} 粉丝` : "已连接小红书" : "请先连接小红书"}</span>
             <p><i /> 本地草稿</p>
           </div>
         </section>
@@ -1295,7 +1301,7 @@ export function App() {
 
         <div className={`draft-status ${workspace.status.state}`} role="status">{workspace.status.text}<span>草稿保存在当前浏览器</span></div>
         {resultsStale ? <div className="stale-notice" role="status">素材、选题、创作要求或参考已变化。原结果已保留，请重新生成或核对后再使用。</div> : null}
-        <AccountPanel busy={!workspace.ready || workspace.switching || accountBusy || Boolean(generatingKind) || automationRunning} onBusy={setAccountBusy} onAnalyze={async (accountInput) => { const result = await runTextGeneration("accountAnalysis", { accountInput }); return result ? result.items[0] : null; }} checkModel={requireTextModel} onVersion={setAccountVersion} onReady={() => setAccountReady(true)} onMessage={(message, error) => error ? setCustomError(message) : setSuccess(message)} mode={accountMode} onMode={setAccountMode} draftVersion={accountSnapshot} onUseLatest={(version) => { setAccountSnapshot(accountWritingContext(version, accountMode === "off" ? "continue" : accountMode)); if (accountMode === "off") setAccountMode("continue"); setSuccess(`本篇已切换到账号档案 v${version.number}，原生成结果保留，请重新核对。`); }} />
+        <AccountPanel busy={!workspace.ready || workspace.switching || accountBusy || Boolean(generatingKind) || automationRunning} onBusy={setAccountBusy} onAnalyze={async (accountInput) => { const result = await runTextGeneration("accountAnalysis", { accountInput }); return result ? result.items[0] : null; }} checkModel={requireTextModel} onVersion={setAccountVersion} onProfile={setConnectedAccount} onReady={() => setAccountReady(true)} onMessage={(message, error) => error ? setCustomError(message) : setSuccess(message)} mode={accountMode} onMode={setAccountMode} draftVersion={accountSnapshot} onUseLatest={(version) => { setAccountSnapshot(accountWritingContext(version, accountMode === "off" ? "continue" : accountMode)); if (accountMode === "off") setAccountMode("continue"); setSuccess(`本篇已切换到账号档案 v${version.number}，原生成结果保留，请重新核对。`); }} />
         <section id="step-input" className="input-panel clay-panel mint-glow">
           <SectionHeader
             icon="入"
@@ -1503,8 +1509,8 @@ export function App() {
             <SectionHeader icon="预" tone="pink" title="小红书预览" meta="选择文案后实时查看草稿" />
             <div className="post-card">
               <div className="post-author">
-                <img src="/assets/avatar-creator.png" alt="" />
-                <strong>薄荷小丸子</strong>
+                <AccountAvatar profile={connectedAccount} />
+                <strong title={creatorName}>{creatorName}</strong>
                 <button type="button">关注</button>
               </div>
               <div className="post-cover-wrap">

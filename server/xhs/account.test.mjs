@@ -21,13 +21,20 @@ function mockCli(t, replies) {
   return launch;
 }
 test("account profile whitelists public metadata and preserves unknown follower data", async (t) => {
-  const launch = mockCli(t, [{ ok: true, data: { basic_info: { user_id: userId, nickname: "成长记录", desc: "记录成长", cookie: "secret-cookie" }, interactions: [{ type: "fans", count: 469 }], xsec_token: "secret-token" } }, { ok: true, data: { user_id: userId, nickname: "成长记录" } }]);
+  const launch = mockCli(t, [{ ok: true, data: { basic_info: { user_id: userId, nickname: "小白的成长日记", imageb: "http://sns-avatar-qc.xhscdn.com/avatar/creator.jpg", desc: "记录成长", cookie: "secret-cookie" }, interactions: [{ type: "fans", count: 469 }], xsec_token: "secret-token" } }, { ok: true, data: { user_id: userId, nickname: "成长记录" } }]);
   const result = await runXhsAccountProfile({ url: `https://www.xiaohongshu.com/user/profile/${userId}?xsec_token=discard` });
   assert.equal(result.profile.followers, 469);
-  assert.equal(result.profile.nickname, "成长记录");
+  assert.equal(result.profile.nickname, "小白的成长日记");
+  assert.equal(result.profile.avatarUrl, "https://sns-avatar-qc.xhscdn.com/avatar/creator.jpg");
   assert.deepEqual(launch.mock.calls[0].arguments[1].slice(2), ["user", userId, "--json"]);
   assert.doesNotMatch(JSON.stringify(result), /secret|discard|xsec_token|"cookie"/);
   assert.equal((await runXhsAccountProfile({ userId })).profile.followers, null);
+});
+
+test("unsafe avatar values are discarded and a valid public fallback is used", async (t) => {
+  mockCli(t, [{ ok: true, data: { basic_info: { user_id: userId, nickname: "真实昵称", imageb: "https://evil.example/avatar.jpg", image: "https://sns-avatar-qn.xhscdn.com/avatar/safe.jpg" } } }, { ok: true, data: { user_id: userId, nickname: "真实昵称", avatar_url: "javascript:alert(1)" } }]);
+  assert.equal((await runXhsAccountProfile({ userId })).profile.avatarUrl, "https://sns-avatar-qn.xhscdn.com/avatar/safe.jpg");
+  assert.equal((await runXhsAccountProfile({ userId })).profile.avatarUrl, "");
 });
 test("account inputs are rejected before spawning and profile mismatches are rejected", async (t) => {
   const launch = mockCli(t, [{ ok: true, data: { basic_info: { user_id: otherId } } }]);

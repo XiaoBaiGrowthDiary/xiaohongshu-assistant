@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { resolveNpmCli } from "../server/localCli/commandPaths.mjs";
 import { supportsNoteReading, supportsAccountProfiles, supportsCurrentModelTiming } from "./serviceProbe.mjs";
+import { APP_TITLE } from "../shared/branding.mjs";
+import { LEGACY_APP_TITLE } from "../shared/legacyCompatibility.mjs";
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const host = "127.0.0.1";
@@ -72,7 +74,8 @@ function openBrowser() {
 async function isAppRunning() {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
-    return response.ok && (await response.text()).includes("<title>薄荷工坊 / Mint Atelier</title>");
+    const html = await response.text();
+    return response.ok && [APP_TITLE, LEGACY_APP_TITLE].some((title) => html.includes(`<title>${title}</title>`));
   } catch {
     return false;
   }
@@ -92,17 +95,17 @@ async function waitForServer() {
 
 if (await isAppRunning()) {
   if (!(await supportsNoteReading(url)) || !(await supportsAccountProfiles(url)) || !(await supportsCurrentModelTiming(url))) {
-    console.error("检测到旧版或未就绪的薄荷工坊后台，尚未加载当前账号功能或 15 分钟模型等待设置。");
+    console.error("检测到旧版或未就绪的小红书创作站后台，尚未加载当前账号资料、头像功能或 15 分钟模型等待设置。");
     console.error("请先保存草稿，在原启动窗口按 q 并回车（或关闭该窗口），再重新运行启动脚本。");
     process.exitCode = 1;
   } else {
-    console.log(`Mint Atelier is already running at ${url}.`);
+    console.log(`XHS Creator Station is already running at ${url}.`);
     openBrowser();
   }
 } else {
 installDependenciesIfNeeded();
 
-console.log("Starting Mint Atelier");
+console.log("Starting XHS Creator Station");
 console.log(`Project: ${projectDir}`);
 console.log(`Fixed URL: ${url}`);
 console.log(`Mode: ${useDevServer ? "development server" : "build and local preview"}`);
@@ -133,7 +136,7 @@ const server = run(viteCli, [
 });
 
 server.on("error", (error) => {
-  console.error(`Could not start Mint Atelier: ${error.message}`);
+  console.error(`Could not start XHS Creator Station: ${error.message}`);
   process.exit(1);
 });
 

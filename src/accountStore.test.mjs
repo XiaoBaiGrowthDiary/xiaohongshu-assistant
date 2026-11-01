@@ -28,7 +28,7 @@ function storage(t) {
   t.after(() => { if (prior) Object.defineProperty(globalThis, "indexedDB", prior); else delete globalThis.indexedDB; });
   return { failNext() { abortWrite = true; } };
 }
-const account = (userId) => ({ profile: { userId, nickname: "记录者" }, goal: "我的目标", facts: "我的身份", samples: [{ noteId: "note", body: "全文末尾🌿", originalBody: "全文末尾🌿", enabled: true }], versions: [{ number: 1, analysis: { summary: "正式档案" } }], candidate: { analysis: { summary: "待确认" } } });
+const account = (userId) => ({ profile: { userId, nickname: "小白的成长日记", avatarUrl: "https://sns-avatar-qc.xhscdn.com/avatar/a.jpg" }, goal: "我的目标", facts: "我的身份", samples: [{ noteId: "note", body: "全文末尾🌿", originalBody: "全文末尾🌿", enabled: true }], versions: [{ number: 1, analysis: { summary: "正式档案" } }], candidate: { analysis: { summary: "待确认" } } });
 test("account library restores complete originals and versions without storing model credentials", async (t) => {
   storage(t);
   const record = account("account-one");

@@ -13,7 +13,7 @@ async function requestJson(endpoint, payload, fallbackMessage, badJsonCode) {
     data = JSON.parse(text);
   } catch {
     if ((endpoint === "/api/xhs/read" || endpoint.startsWith("/api/xhs/account/")) && (response.status === 404 || (response.ok && /^\s*(?:<!doctype\s+html|<html\b)/i.test(text)))) {
-      throw Object.assign(new Error("当前薄荷工坊后台尚未加载所需的账号或正文读取接口。请先保存草稿，关闭原来的启动窗口，再重新启动薄荷工坊并刷新页面。"), { code: "XHS_SERVICE_OUTDATED" });
+      throw Object.assign(new Error("当前小红书创作站后台尚未加载所需的账号或正文读取接口。请先保存草稿，关闭原来的启动窗口，再重新启动小红书创作站并刷新页面。"), { code: "XHS_SERVICE_OUTDATED" });
     }
     throw Object.assign(new Error(fallbackMessage.nonJson), {
       code: badJsonCode,
@@ -31,9 +31,9 @@ async function requestJson(endpoint, payload, fallbackMessage, badJsonCode) {
   return data;
 }
 
-export const requestAccountProfile = (payload) => requestJson("/api/xhs/account/profile", payload, { nonJson: "账号资料服务未返回 JSON，请重启薄荷工坊。", failed: "读取账号资料失败。" }, "XHS_BAD_JSON");
-export const requestAccountPosts = (payload) => requestJson("/api/xhs/account/posts", payload, { nonJson: "账号作品列表服务未返回 JSON，请重启薄荷工坊。", failed: "读取账号作品失败。" }, "XHS_BAD_JSON");
-export const requestAccountNote = (payload) => requestJson("/api/xhs/account/read", payload, { nonJson: "账号正文服务未返回 JSON，请重启薄荷工坊。", failed: "读取账号正文失败。" }, "XHS_BAD_JSON");
+export const requestAccountProfile = (payload) => requestJson("/api/xhs/account/profile", payload, { nonJson: "账号资料服务未返回 JSON，请重启小红书创作站。", failed: "读取账号资料失败。" }, "XHS_BAD_JSON");
+export const requestAccountPosts = (payload) => requestJson("/api/xhs/account/posts", payload, { nonJson: "账号作品列表服务未返回 JSON，请重启小红书创作站。", failed: "读取账号作品失败。" }, "XHS_BAD_JSON");
+export const requestAccountNote = (payload) => requestJson("/api/xhs/account/read", payload, { nonJson: "账号正文服务未返回 JSON，请重启小红书创作站。", failed: "读取账号正文失败。" }, "XHS_BAD_JSON");
 
 export async function requestCodexGeneration(payload) {
   return requestJson(

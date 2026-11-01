@@ -40,9 +40,10 @@ test("account capability check uses GET and detects a backend predating account 
 test("launcher rejects old timing policies and recognizes the fifteen-minute backend without running models", async () => {
   const response = (milliseconds) => async (url, options) => {
     assert.equal(new URL(url).pathname, "/api/runtime"); assert.equal(options.method, "GET");
-    return new Response(JSON.stringify({ ok: true, app: "mint-atelier", modelTimeoutMs: milliseconds }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, app: "xiaohongshu-creator-station", modelTimeoutMs: milliseconds, accountProfileVersion: 2 }), { status: 200 });
   };
   assert.equal(await supportsCurrentModelTiming("http://127.0.0.1:52880", response(180000)), false);
   assert.equal(await supportsCurrentModelTiming("http://127.0.0.1:52880", response(900000)), true);
+  assert.equal(await supportsCurrentModelTiming("http://127.0.0.1:52880", async () => new Response(JSON.stringify({ ok: true, app: "xiaohongshu-creator-station", modelTimeoutMs: 900000 }), { status: 200 })), false);
   assert.equal(await supportsCurrentModelTiming("http://127.0.0.1:52880", async () => new Response(null, { status: 404 })), false);
 });

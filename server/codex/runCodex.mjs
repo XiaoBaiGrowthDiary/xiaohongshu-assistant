@@ -45,7 +45,7 @@ function commandPreview(args) {
 
 export async function runCodex({ prompt, modelName, taskKind }) {
   const codexPath = resolveCodexCommand();
-  const workDir = await mkdtemp(path.join(tmpdir(), "xhs-g4-codex-"));
+  const workDir = await mkdtemp(path.join(tmpdir(), "xhs-creator-station-codex-"));
   const outputPath = path.join(workDir, "last-message.txt");
   const args = buildArgs({ modelName, outputPath });
   const startedAt = Date.now();

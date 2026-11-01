@@ -1,4 +1,5 @@
-const DATABASE = "mint-atelier-accounts-v1";
+import { STORAGE_KEYS } from "../shared/legacyCompatibility.mjs";
+const DATABASE = STORAGE_KEYS.accountDatabase;
 function database() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE, 1);

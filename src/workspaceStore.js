@@ -1,7 +1,8 @@
 import { projectSnapshot } from "../shared/project.mjs";
+import { STORAGE_KEYS } from "../shared/legacyCompatibility.mjs";
 
-const DATABASE = "mint-atelier-workspace-v1";
-const ACTIVE_KEY = "mint-atelier-v3:active-project";
+const DATABASE = STORAGE_KEYS.workspaceDatabase;
+const ACTIVE_KEY = STORAGE_KEYS.activeProject;
 let databasePromise;
 const coverBackups = new Map();
 
@@ -18,7 +19,7 @@ function database() {
         resolve(request.result);
       };
       request.onerror = () => { databasePromise = undefined; reject(new Error("无法打开本地草稿库，请检查浏览器存储权限。")); };
-      request.onblocked = () => { databasePromise = undefined; reject(new Error("草稿库正在更新，请关闭其他薄荷工坊页面后重试。")); };
+      request.onblocked = () => { databasePromise = undefined; reject(new Error("草稿库正在更新，请关闭其他小红书创作站页面后重试。")); };
     });
   }
   return databasePromise;

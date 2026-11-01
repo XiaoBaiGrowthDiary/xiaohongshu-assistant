@@ -26,6 +26,8 @@ import {
 } from "../xhs/runXhs.mjs";
 import { runXhsAccountProfile, runXhsAccountPosts, runXhsAccountRead } from "../xhs/account.mjs";
 import { MODEL_TIMEOUT_MS } from "../../shared/modelTiming.mjs";
+import { APP_ID } from "../../shared/branding.mjs";
+import { ACCOUNT_PROFILE_VERSION } from "../../shared/accountIdentity.mjs";
 import {
   assertLocalImageCli,
   detectLocalClis,
@@ -85,7 +87,7 @@ export function codexGenerateMiddleware() {
   return async (req, res, next) => {
     const requestUrl = new URL(req.url ?? "/", "http://localhost");
     if (requestUrl.pathname === "/api/runtime") {
-      sendJson(res, req.method === "GET" ? 200 : 405, req.method === "GET" ? { ok: true, app: "mint-atelier", modelTimeoutMs: MODEL_TIMEOUT_MS } : { ok: false, code: "METHOD_NOT_ALLOWED", error: "Only GET is supported." });
+      sendJson(res, req.method === "GET" ? 200 : 405, req.method === "GET" ? { ok: true, app: APP_ID, modelTimeoutMs: MODEL_TIMEOUT_MS, accountProfileVersion: ACCOUNT_PROFILE_VERSION } : { ok: false, code: "METHOD_NOT_ALLOWED", error: "Only GET is supported." });
       return;
     }
     const handledGeneratedCover = await serveGeneratedCover(requestUrl, res, next);

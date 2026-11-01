@@ -5,10 +5,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 import { accountSourceKey } from "../shared/account.mjs";
 
-let server, Component;
+let server, Component, Avatar;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true }, appType: "custom" });
   ({ AccountReview: Component } = await server.ssrLoadModule("/src/AccountReview.jsx"));
+  ({ AccountAvatar: Avatar } = await server.ssrLoadModule("/src/AccountAvatar.jsx"));
 });
 after(async () => { await server?.close(); });
 const analysis = { summary: "实习经历分享", positioning: "供应链实习经验", audience: "求职学生（待验证）", pillars: ["实习复盘"], voice: ["步骤具体"], boundaries: ["不编造经历"], hypotheses: ["尝试系列"], evidence: [{ noteId: "65abcdef1234567890abcdef", title: "实习", quote: "注意交期", insight: "结尾有提醒" }], changes: ["首次分析"] };
@@ -79,4 +80,18 @@ test("cached complete text can be analyzed again after restart, while unread sam
   assert.match(render(complete, { onRetry() {} }), /分析已读正文（无需重新读取）/);
   complete.samples[0].body = "";
   assert.doesNotMatch(render(complete, { error: "正文缺失", onRetry() {} }), /分析已读正文（无需重新读取）/);
+});
+
+test("connected avatars use platform metadata rather than the former static creator image", () => {
+  const html = renderToStaticMarkup(React.createElement(Avatar, { profile: { userId: "one", nickname: "小白的成长日记", avatarUrl: "https://sns-avatar-qc.xhscdn.com/avatar/one.jpg" } }));
+  assert.match(html, /src="https:\/\/sns-avatar-qc.xhscdn.com\/avatar\/one.jpg"/);
+  assert.match(html, /小白的成长日记的小红书头像/);
+  assert.match(html, /referrerPolicy="no-referrer"/i);
+  assert.doesNotMatch(html, /avatar-creator/);
+});
+
+test("missing avatars show an explicit placeholder instead of the old cartoon", () => {
+  const html = renderToStaticMarkup(React.createElement(Avatar, { profile: { userId: "one", nickname: "小白的成长日记" } }));
+  assert.match(html, /头像未获取或加载失败/);
+  assert.doesNotMatch(html, /<img/);
 });

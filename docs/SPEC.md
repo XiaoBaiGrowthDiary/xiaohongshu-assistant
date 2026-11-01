@@ -2,7 +2,7 @@
 
 ## 1. 产品目标
 
-`薄荷工坊 / Mint Atelier` 是一个桌面端 Web App，用于帮助用户生成优质小红书内容。用户输入账号人设、创作关键词、本篇创作要求和个人文字素材后，可以参考热门写法，生成有素材依据的选题与文案，核对、编辑并保存草稿，也可继续生成封面。用户可手动逐步推进，或点击“自动化生成”完成本次所选流程。
+`小红书创作站 / XHS Creator Station` 是一个桌面端 Web App，用于帮助用户生成优质小红书内容。用户输入账号人设、创作关键词、本篇创作要求和个人文字素材后，可以参考热门写法，生成有素材依据的选题与文案，核对、编辑并保存草稿，也可继续生成封面。用户可手动逐步推进，或点击“自动化生成”完成本次所选流程。
 
 产品核心目标是让用户通过简单流程完成从「关键词」到「可发布内容草稿」的创作过程。本产品只做内容创作辅助，不做自动发布、自动点赞、自动评论、自动收藏、自动关注等平台操作。
 
@@ -118,7 +118,7 @@ CLI 返回结构化错误时保留未登录、需要验证等现有分类。CLI 
 - Claude Code：通过 `claude --print <prompt> --output-format json` 生成文本和模型决策，可选 `--model <alias>`；调用时启用 safe mode、关闭工具和会话持久化，解析响应的 `result` 字段。默认从 PATH 查找，可用 `CLAUDE_CLI_PATH` 覆盖。Claude Code 当前不声明图片生成能力，因此不会出现在本地图片 CLI 选项中。
 - 自定义规范 CLI：用户可填写 PATH 中的命令名或可执行文件绝对路径。服务端使用 `shell: false` 和独立参数数组启动，不允许 shell 命令片段。
 
-Mint Atelier print protocol 规定：CLI 必须支持 `--version`；文本调用必须支持可选的 `--model <alias>`、必填的 `--prompt <prompt>` 和 `--output-format stream-json`；stdout 采用逐行 JSON，每次最终回复至少包含一条 `{"role":"assistant","content":"<valid JSON>"}`，其中 `content` 是满足当前任务结构的 JSON 字符串。stderr 可输出思考或进度，但不得承载最终结果。新增本地 CLI 也可以通过实现 `server/localCli/registry.mjs` 的适配器接口接入其他调用规范。
+XHS Creator Station print protocol 规定：CLI 必须支持 `--version`；文本调用必须支持可选的 `--model <alias>`、必填的 `--prompt <prompt>` 和 `--output-format stream-json`；stdout 采用逐行 JSON，每次最终回复至少包含一条 `{"role":"assistant","content":"<valid JSON>"}`，其中 `content` 是满足当前任务结构的 JSON 字符串。stderr 可输出思考或进度，但不得承载最终结果。新增本地 CLI 也可以通过实现 `server/localCli/registry.mjs` 的适配器接口接入其他调用规范。
 
 本地 CLI 返回文案和封面 Prompt 时，服务端兼容约定字段的常见英文、snake_case 与中文别名。文案的 `coverDirection` 完全缺失时，服务端根据文案标题补充静物封面方向；其他必需内容、数量和话题标签仍保持强校验。本地 CLI 的结构化输出错误统一使用 `LOCAL_CLI_BAD_JSON`。
 
@@ -198,7 +198,7 @@ kind: draftReview 对所选文案和个人原文辅助核对，返回单项 summ
 
 `kind: accountAnalysis` 通过现有本地 / 云端文案接口处理，与单篇草稿素材校验独立。返回 summary、positioning、audience、pillars、voice、boundaries、hypotheses、evidence、changes。每个 evidence 必须引用选中 noteId 以及标题或正文中的真实连续引句，服务端严格校验。模型不得根据粉丝数推断人群属性，不得填补未获取指标，不得把互动与写法的相关性写成因果结论；分析仅覆盖已获取文字，结论供用户确认。
 
-目标与确认事实作为用户输入独立保留；自动同步与分析不能覆盖它们。模型分析先存为待确认版本，可编辑并查看原文依据、更新建议和字段前后差异。样本、文字、反馈或目标改变后待确认版本失效。确认时先完成 IndexedDB 事务，再启用正式版本，保留历史版本。账号库使用独立数据库 `mint-atelier-accounts-v1` 的 accounts store，保存当前记录与按账号 ID 索引的历史记录；切换账号不删除原库，不保存模型配置。
+目标与确认事实作为用户输入独立保留；自动同步与分析不能覆盖它们。模型分析先存为待确认版本，可编辑并查看原文依据、更新建议和字段前后差异。样本、文字、反馈或目标改变后待确认版本失效。确认时先完成 IndexedDB 事务，再启用正式版本，保留历史版本。账号库使用独立的 IndexedDB 账号数据库（历史标识见 `shared/legacyCompatibility.mjs`）的 accounts store，保存当前记录与按账号 ID 索引的历史记录；切换账号不删除原库，不保存模型配置。
 
 草稿字段新增 accountSnapshot、accountMode。新草稿默认采用当前正式版本，在用户首次生成 / 决策时保存版本快照；仅恢复档案不自动创建空白草稿。已有快照不因全局档案更新而更换，用户可主动切换最新正式版本。支持 continue、explore、off 三种模式，账号内容进入写作、分析与决策上下文及过期签名；示例人设在有档案时采用账号定位，自填人设和本篇要求继续有效。历史作品不作为本篇新发生经历的事实依据，未确认分析不进入创作，模型请求不发送账号原文备份或整个样本库。
 
@@ -214,6 +214,20 @@ kind: draftReview 对所选文案和个人原文辅助核对，返回单项 summ
 
 `GET /api/runtime` 只返回应用标识和 modelTimeoutMs，不检测 CLI、不请求模型、不访问账号或凭据。启动器除接口能力外还校验该数值，旧后台需保存数据、关闭原窗口再启动。XHS 搜索 / 正文仍为 60 秒，CLI 检测为 5 秒，云端图片文件下载为 5 分钟，均是独立的非模型操作限制。
 
-Windows 用户可以双击 `启动薄荷工坊.bat`，macOS 用户可以双击 `启动薄荷工坊.command`。默认固定使用 `http://127.0.0.1:52880`：缺少依赖时安装依赖，然后构建、启动本地预览并打开浏览器；`npm run launch:dev` 使用同一固定地址启动开发服务。启动器通过 Node 直接运行 Vite，依赖安装通过 Node 运行 npm 的 JavaScript 入口，不以 `shell: false` 直接执行 Windows `.cmd` 文件。如果固定地址上已经运行着薄荷工坊，启动器通过 GET 检查正文读取和账号档案接口；正常返回 405 和 `METHOD_NOT_ALLOWED` 才复用并打开已有页面。接口缺失或不可用时提示先保存草稿并关闭旧启动窗口，不主动停止用户进程、不触发 xhs 或模型调用。
+Windows 用户可以双击 `启动小红书创作站.bat`，macOS 用户可以双击 `启动小红书创作站.command`。默认固定使用 `http://127.0.0.1:52880`：缺少依赖时安装依赖，然后构建、启动本地预览并打开浏览器；`npm run launch:dev` 使用同一固定地址启动开发服务。启动器通过 Node 直接运行 Vite，依赖安装通过 Node 运行 npm 的 JavaScript 入口，不以 `shell: false` 直接执行 Windows `.cmd` 文件。如果固定地址上已经运行着小红书创作站，启动器通过 GET 检查正文读取和账号档案接口；正常返回 405 和 `METHOD_NOT_ALLOWED` 才复用并打开已有页面。接口缺失或不可用时提示先保存草稿并关闭旧启动窗口，不主动停止用户进程、不触发 xhs 或模型调用。
 
 Windows 的 CLI 路径由统一解析器提供：尊重 `CODEX_CLI_PATH` 和 `XHS_CLI_COMMAND` 显式覆盖，其次检查 PATH 中的原生可执行文件或 npm Codex 平台包，并支持用户默认 npm 目录和 uv `.local/bin` 目录。Codex 检测、文本生成与封面 worker 必须使用同一解析规则。路径解析只读取安装文件，不执行 CLI 或版本检测，不修改系统环境、模型设置、缓存或登录凭据；搜索、检测和生成仍由用户点击相应按钮触发。
+
+### 项目品牌与个人展示名
+
+项目名统一为“小红书创作站 / XHS Creator Station”，创作者信息取自当前已确认连接账号的实际昵称、头像和粉丝数，包含侧栏、头像说明和笔记预览作者，不固定个人名字。应用标识与页面标题统一来源见 `shared/branding.mjs`；README、使用指南、CLI 协议说明、启动提示和启动文件使用新名称。Windows 启动入口为 `启动小红书创作站.bat`，macOS 为 `启动小红书创作站.command`。旧版预览图已过期，移除以避免文档混用旧品牌。
+
+浏览器数据库、偏好键、当前草稿记录和既有封面缓存继续使用历史命名空间，集中在 `shared/legacyCompatibility.mjs`。品牌变更不清空或迁移这些数据；启动器识别仍运行的旧版标题，并通过新应用标识拒绝误复用旧后台。账号信息按平台返回保存，连接确认后即可显示，无需等待账号分析。
+
+### 账号头像和昵称同步
+
+账号资料接口增加 avatarUrl，兼容公开资料中的 imageb、image、avatar_url、avatarUrl、avatar 等文字 URL 字段。只接受公开小红书图片域名，统一使用 HTTPS 并拒绝携带登录凭据的 URL；无有效地址返回空字符串。前端通过 no-referrer 图片显示，不提供任意地址下载代理。缺失或失败显示文字占位，不使用示例卡通头像。
+
+AccountPanel 在账号库恢复和资料确认 / 同步提交成功后，将当前 profile 更新给侧栏和笔记预览，独立于正式分析版本；待确认的新账号预览不提前替换当前连接身份。昵称和头像 URL 保存在原账号库，模型输入只含所需文字资料，不含头像地址。更新头像和抓取时间不会使有效待确认分析过期，昵称或简介等真实信息变化仍要求重新分析。
+
+`GET /api/runtime` 返回 accountProfileVersion=2，启动器检查资料版本，以识别缺少头像字段的旧后台。升级后首次重新读取并确认账号资料即可补齐头像，无需重新读取历史作品或生成账号分析。

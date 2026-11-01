@@ -7,10 +7,11 @@ import { fileURLToPath } from "node:url";
 import { CodexApiError } from "./validation.mjs";
 import { resolveCodexCommand } from "../localCli/commandPaths.mjs";
 import { MODEL_TIMEOUT_MS, modelTimeoutMessage } from "../../shared/modelTiming.mjs";
+import { STORAGE_KEYS } from "../../shared/legacyCompatibility.mjs";
 
 const GENERATED_ROUTE_PREFIX = "/generated/covers/";
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const generatedDir = path.join(tmpdir(), "xhs-g4-generated-covers");
+const generatedDir = path.join(tmpdir(), STORAGE_KEYS.coverCacheDirectory);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 function compactText(value, maxLength = 160) {
@@ -42,7 +43,7 @@ export function buildCoverImagePrompt(payload) {
     `Primary request: ${compactText(selectedPrompt.prompt ?? payload.prompt, 1800)}`,
     "Style/medium: photorealistic editorial still-life image with soft pastel claymorphism influence",
     "Composition/framing: vertical 4:5 cover, clean centered still-life composition, enough negative space for short title text",
-    "Lighting/mood: soft natural studio light, fresh mint atelier mood, refined and practical",
+    "Lighting/mood: soft natural studio light, fresh pastel creator-workbench mood, refined and practical",
     "Color palette: mint green, cream white, pale rose, soft lavender, low-saturation summer colors",
     "Materials/textures: fabric, paper, bag, shoes, stationery, color cards, desk surface, plants or flowers if useful",
     `Text (verbatim): "${compactText(draft.title || selectedPrompt.title || payload.keyword, 48)}"`,
@@ -182,7 +183,7 @@ export function validateCoverImageRequest(payload) {
 
 export async function runCoverImagegen(payload) {
   const codexPath = resolveCodexCommand();
-  const workDir = await mkdtemp(path.join(tmpdir(), "xhs-g4-imagegen-"));
+  const workDir = await mkdtemp(path.join(tmpdir(), "xhs-creator-station-imagegen-"));
   const imagePath = path.join(workDir, "image.png");
   const resultPath = path.join(workDir, "result.json");
   const lastMessagePath = path.join(workDir, "last-message.txt");

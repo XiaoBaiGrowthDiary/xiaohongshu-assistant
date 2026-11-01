@@ -281,7 +281,7 @@ function getSelection(payload = {}) {
     return {
       id: "custom",
       label: `规范 CLI（${displayCommand(command)}）`,
-      description: "兼容 Mint Atelier print protocol",
+      description: "兼容 XHS Creator Station print protocol",
       capabilities: { text: true, image: false },
       command,
       commandPreview: `${displayCommand(command)} --prompt ... --output-format stream-json`,
@@ -372,7 +372,7 @@ export async function detectLocalClis({ customCommand } = {}) {
       await detectOne({
         id: "custom",
         label: `规范 CLI（${displayCommand(command)}）`,
-        description: "兼容 Mint Atelier print protocol",
+        description: "兼容 XHS Creator Station print protocol",
         capabilities: { text: true, image: false },
         command: () => command,
         commandPreview: `${displayCommand(command)} --prompt ... --output-format stream-json`,

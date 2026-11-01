@@ -1,12 +1,14 @@
 // This is a local capability check only: GET never launches the xhs CLI.
 import { MODEL_TIMEOUT_MS } from "../shared/modelTiming.mjs";
+import { APP_ID } from "../shared/branding.mjs";
+import { ACCOUNT_PROFILE_VERSION } from "../shared/accountIdentity.mjs";
 
 export async function supportsCurrentModelTiming(baseUrl, request = fetch) {
   try {
     const response = await request(new URL("/api/runtime", baseUrl), { method: "GET", signal: AbortSignal.timeout(1500) });
     if (!response.ok) return false;
     const data = await response.json();
-    return data.ok === true && data.app === "mint-atelier" && data.modelTimeoutMs === MODEL_TIMEOUT_MS;
+    return data.ok === true && data.app === APP_ID && data.modelTimeoutMs === MODEL_TIMEOUT_MS && data.accountProfileVersion === ACCOUNT_PROFILE_VERSION;
   } catch { return false; }
 }
 

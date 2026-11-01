@@ -39,7 +39,7 @@ function formatRagItems(ragItems = []) {
 
 function baseContext(payload) {
   return [
-    "You are generating Chinese Xiaohongshu content for Mint Atelier, a local desktop content workbench.",
+    "You are generating Chinese Xiaohongshu content for XHS Creator Station, a local desktop content workbench.",
     ...JSON_ONLY_RULES,
     "",
     `Persona: ${compactText(payload.persona, 1000)}`,

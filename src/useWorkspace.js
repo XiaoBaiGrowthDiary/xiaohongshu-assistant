@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { deleteProject, listDeletedProjects, listProjects, loadProject, rememberedProjectId, rememberProject, restoreDeletedProject, saveProject } from "./workspaceStore.js";
 import { deleteReference, restoreReference } from "../shared/references.mjs";
 import { hasProjectContentChanges } from "../shared/project.mjs";
+import { STORAGE_KEYS } from "../shared/legacyCompatibility.mjs";
 
 function legacyValue(key, fallback) {
-  try { const value = JSON.parse(localStorage.getItem(`mint-atelier-v2:${key}`)); return typeof value === typeof fallback ? value : fallback; }
+  try { const value = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.preferencesPrefix}:${key}`)); return typeof value === typeof fallback ? value : fallback; }
   catch { return fallback; }
 }
 

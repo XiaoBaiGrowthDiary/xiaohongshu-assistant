@@ -1,4 +1,5 @@
 import { accountId } from "../../shared/account.mjs";
+import { publicAvatarUrl } from "../../shared/accountIdentity.mjs";
 import { CodexApiError } from "../codex/validation.mjs";
 import { runXhsCommand, runXhsReadFromListing, validateXhsReadRequest } from "./runXhs.mjs";
 
@@ -28,7 +29,8 @@ export function runXhsAccountProfile(payload) {
     const returnedId = text(basic.user_id || data.user_id || basic.userId || data.id).toLowerCase();
     if (returnedId && returnedId !== userId) throw new CodexApiError("XHS_ACCOUNT_MISMATCH", "返回的账号与主页链接不一致，请重新读取。", 502);
     const interactions = Array.isArray(data.interactions) ? data.interactions : [];
-    return { profile: { userId, nickname: text(basic.nickname || basic.nick_name || basic.name), bio: text(basic.desc || basic.description), redId: text(basic.red_id), followers: count(interactions.find((item) => item.type === "fans")?.count ?? data.fans), source: `https://www.xiaohongshu.com/user/profile/${userId}`, fetchedAt: new Date().toISOString() } };
+    const avatarUrl = [basic.imageb, basic.image, basic.avatar_url, basic.avatarUrl, basic.avatar, data.avatar_url, data.avatarUrl, data.avatar].map(publicAvatarUrl).find(Boolean) || "";
+    return { profile: { userId, nickname: text(basic.nickname || basic.nick_name || basic.name), avatarUrl, bio: text(basic.desc || basic.description), redId: text(basic.red_id), followers: count(interactions.find((item) => item.type === "fans")?.count ?? data.fans), source: `https://www.xiaohongshu.com/user/profile/${userId}`, fetchedAt: new Date().toISOString() } };
   });
 }
 export function runXhsAccountPosts(payload) {

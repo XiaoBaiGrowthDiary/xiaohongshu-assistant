@@ -1,6 +1,8 @@
-# 薄荷工坊 / Mint Atelier
+# 小红书创作站 / XHS Creator Station
 
-`薄荷工坊 / Mint Atelier` 是一个 React + Vite 桌面端 Web App，用于辅助生成小红书内容草稿。支持先导入你的文字素材，再参考热门写法生成选题和文案，核对素材、编辑正文并保存，也可继续生成封面。
+这是在原项目基础上持续升级的个人版本，创作者信息直接使用已连接小红书账号读取到的昵称、头像和粉丝数。当前维护仓库为 [XiaoBaiGrowthDiary/xiaohongshu-assistant](https://github.com/XiaoBaiGrowthDiary/xiaohongshu-assistant)。
+
+`小红书创作站 / XHS Creator Station` 是一个 React + Vite 桌面端 Web App，用于辅助生成小红书内容草稿。支持先导入你的文字素材，再参考热门写法生成选题和文案，核对素材、编辑正文并保存，也可继续生成封面。
 
 项目保持 3 列内容创作工作台形态，并保留 Pastel 3D Claymorphism 视觉方向。当前链路支持本机 `xhs` CLI 热门搜索、本地 Codex/Kimi/Claude/自定义规范 CLI 文本生成、Codex 本地图片生成，以及云端 OpenAI-compatible API 生成；RAG 入库支持用户手动勾选确认，也支持用户点击“自动化生成”后由文案模型选择参考内容并入库。
 
@@ -32,22 +34,18 @@
 
 升级后请先停止旧启动窗口，再重新双击启动脚本，确保前端和本地 API 都加载新版本。详细说明见 [文字素材操作指南](docs/TEXT_MATERIALS.md)。
 
-如果正文读取提示后台尚未加载接口，请先保存草稿，找到原来启动薄荷工坊的终端窗口并输入 `q` 后回车（或按 `Ctrl+C`），待窗口中的服务停止后再双击启动脚本，最后刷新页面并点击“重试读取”。重复双击不能替代关闭旧服务；启动器会检测旧接口并提示处理。
-
-## 预览
-
-![薄荷工坊桌面工作台预览](public/assets/mint-atelier-preview.jpg)
+如果正文读取提示后台尚未加载接口，请先保存草稿，找到原来启动小红书创作站的终端窗口并输入 `q` 后回车（或按 `Ctrl+C`），待窗口中的服务停止后再双击启动脚本，最后刷新页面并点击“重试读取”。重复双击不能替代关闭旧服务；启动器会检测旧接口并提示处理。
 
 ## 本地运行
 
 最省心的启动方式：
 
-- macOS：双击 `启动薄荷工坊.command`
-- Windows：双击 `启动薄荷工坊.bat`
+- macOS：双击 `启动小红书创作站.command`
+- Windows：双击 `启动小红书创作站.bat`
 
 脚本会使用固定地址 `http://127.0.0.1:52880`，缺少 `node_modules` 时会先执行 `npm install`，然后等待本地服务启动并自动打开浏览器。模型配置写入浏览器 `localStorage`，固定地址可以避免端口变化导致缓存读不到。
 
-Windows 会自动定位通过 npm 安装的 Codex 原生 `codex.exe`，以及通过 uv 安装在用户 `.local/bin` 下的 `xhs.exe`，不需要每次打开 PowerShell 后重新输入 `CODEX_CLI_PATH`。一键脚本通过 Node 直接运行 Vite，首次安装依赖时也通过 Node 运行 npm 的 JavaScript 入口，兼容 Windows 的 `npm.cmd` 执行限制。如果固定地址已经运行着薄荷工坊，再次双击只会打开已有页面；使用期间保留原来的服务窗口。
+Windows 会自动定位通过 npm 安装的 Codex 原生 `codex.exe`，以及通过 uv 安装在用户 `.local/bin` 下的 `xhs.exe`，不需要每次打开 PowerShell 后重新输入 `CODEX_CLI_PATH`。一键脚本通过 Node 直接运行 Vite，首次安装依赖时也通过 Node 运行 npm 的 JavaScript 入口，兼容 Windows 的 `npm.cmd` 执行限制。如果固定地址已经运行着小红书创作站，再次双击只会打开已有页面；使用期间保留原来的服务窗口。
 
 命令行启动同一个固定地址：
 
@@ -99,7 +97,7 @@ Claude Code 默认通过系统 PATH 查找 `claude`，可通过环境变量覆�
 CLAUDE_CLI_PATH=/path/to/claude npm run launch:fixed
 ```
 
-右侧“文案生成”可以选择 Codex、Kimi、Claude，或填写符合 Mint Atelier print protocol 的自定义命令。自定义 CLI 需要支持 `--version`、`--prompt`、可选 `--model` 和 `--output-format stream-json`，最终 stdout 需包含 `{"role":"assistant","content":"<valid JSON>"}`。本地图片生成当前只显示具备 native imagegen 能力的 Codex CLI。
+右侧“文案生成”可以选择 Codex、Kimi、Claude，或填写符合 XHS Creator Station print protocol 的自定义命令。自定义 CLI 需要支持 `--version`、`--prompt`、可选 `--model` 和 `--output-format stream-json`，最终 stdout 需包含 `{"role":"assistant","content":"<valid JSON>"}`。本地图片生成当前只显示具备 native imagegen 能力的 Codex CLI。
 
 小红书热门搜索通过本机 `xhs` CLI 触发，默认通过系统 PATH 查找 `xhs`，默认只使用 CLI 已保存登录态：
 

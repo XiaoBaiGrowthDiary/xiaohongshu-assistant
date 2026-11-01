@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accountId, accountInput, accountInputProblem, accountProfileProblem, accountSourceKey, accountWritingContext, confirmAccountCandidate, mergeAccountPosts } from "./account.mjs";
+import { accountId, accountInput, accountInputProblem, accountProfileProblem, accountSourceKey, accountWritingContext, confirmAccountCandidate, mergeAccountPosts, refreshAccountProfile } from "./account.mjs";
 import { workflowKey } from "./workflow.mjs";
 import { projectSnapshot as snapshot } from "./project.mjs";
 import { buildCodexPrompt, buildDecisionPrompt } from "../server/codex/prompts.mjs";
@@ -98,4 +98,14 @@ test("account total budget is checked across selected works and older pages reta
   const merged = mergeAccountPosts(current, [{ noteId: olderId, title: "更早的作品", likes: 1 }], true);
   assert.equal(merged[0].noteId, noteId);
   assert.equal(merged.at(-1).noteId, olderId);
+});
+
+test("refreshing only an avatar preserves a valid pending analysis, while changed identity requires reanalysis", () => {
+  const current = record(); current.profile.fetchedAt = "before";
+  current.candidate = { sourceKey: accountSourceKey(current), analysis };
+  const refreshed = refreshAccountProfile(current, { ...current.profile, avatarUrl: "https://sns-avatar-qc.xhscdn.com/a.jpg", fetchedAt: "after" });
+  assert.equal(refreshed.candidate.sourceKey, accountSourceKey(refreshed));
+  assert.doesNotThrow(() => confirmAccountCandidate(refreshed));
+  const changed = refreshAccountProfile(current, { ...current.profile, nickname: "另一个昵称", fetchedAt: "after" });
+  assert.throws(() => confirmAccountCandidate(changed), /重新分析/);
 });
