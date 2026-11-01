@@ -5,8 +5,8 @@ import { runCodex } from "../codex/runCodex.mjs";
 import { CodexApiError } from "../codex/validation.mjs";
 import { resolveCodexCommand } from "./commandPaths.mjs";
 import { assertCliArgumentBudget } from "./inputBudget.mjs";
+import { MODEL_TIMEOUT_MS, modelTimeoutMessage } from "../../shared/modelTiming.mjs";
 
-const TEXT_TIMEOUT_MS = 180_000;
 const DETECT_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -96,7 +96,7 @@ function parseAssistantContent(stdout) {
   return lastAssistantContent.trim();
 }
 
-async function spawnAndCollect(command, args, { timeoutMs, errorPrefix, input }) {
+async function spawnAndCollect(command, args, { timeoutMs, errorPrefix, input, taskKind }) {
   assertCliArgumentBudget(command, args);
   const startedAt = Date.now();
   return new Promise((resolve, reject) => {
@@ -135,7 +135,7 @@ async function spawnAndCollect(command, args, { timeoutMs, errorPrefix, input })
       if (settled) return;
       settled = true;
       child.kill("SIGTERM");
-      reject(new CodexApiError("LOCAL_CLI_TIMEOUT", `${errorPrefix} 执行超时，请稍后重试。`, 504));
+      reject(new CodexApiError("LOCAL_CLI_TIMEOUT", modelTimeoutMessage(errorPrefix, taskKind), 504));
     }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
@@ -185,7 +185,7 @@ async function spawnAndCollect(command, args, { timeoutMs, errorPrefix, input })
   });
 }
 
-async function runPrintProtocolCli({ command, prompt, modelName, label }) {
+async function runPrintProtocolCli({ command, prompt, modelName, label, taskKind }) {
   const args = [
     ...modelArg(modelName),
     "--prompt",
@@ -194,7 +194,8 @@ async function runPrintProtocolCli({ command, prompt, modelName, label }) {
     "stream-json",
   ];
   const result = await spawnAndCollect(command, args, {
-    timeoutMs: TEXT_TIMEOUT_MS,
+    timeoutMs: MODEL_TIMEOUT_MS,
+    taskKind,
     errorPrefix: label,
   });
   const raw = parseAssistantContent(result.stdout);
@@ -247,7 +248,7 @@ function parseClaudeResult(stdout, label) {
   return raw;
 }
 
-async function runClaudePrintCli({ command, prompt, modelName, label }) {
+async function runClaudePrintCli({ command, prompt, modelName, label, taskKind }) {
   const args = [
     ...modelArg(modelName),
     "--print",
@@ -260,7 +261,8 @@ async function runClaudePrintCli({ command, prompt, modelName, label }) {
     "--no-session-persistence",
   ];
   const result = await spawnAndCollect(command, args, {
-    timeoutMs: TEXT_TIMEOUT_MS,
+    timeoutMs: MODEL_TIMEOUT_MS,
+    taskKind,
     errorPrefix: label,
     input: prompt,
   });
@@ -303,18 +305,19 @@ export function localCliSummary(payload = {}) {
   };
 }
 
-export async function runLocalTextCli({ prompt, modelName, cliId, cliCommand }) {
+export async function runLocalTextCli({ prompt, modelName, cliId, cliCommand, taskKind }) {
   const selection = getSelection({ cliId, cliCommand });
   if (!selection.capabilities.text) {
     throw new CodexApiError("LOCAL_CLI_CAPABILITY_UNSUPPORTED", `${selection.label} 不支持文本生成。`, 400);
   }
 
   if (selection.id === "codex") {
-    return runCodex({ prompt, modelName });
+    return runCodex({ prompt, modelName, taskKind });
   }
 
   if (selection.id === "claude") {
     return runClaudePrintCli({
+      taskKind,
       command: selection.command,
       prompt,
       modelName,
@@ -323,6 +326,7 @@ export async function runLocalTextCli({ prompt, modelName, cliId, cliCommand }) 
   }
 
   return runPrintProtocolCli({
+    taskKind,
     command: selection.command,
     prompt,
     modelName,

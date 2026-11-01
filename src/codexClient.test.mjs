@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestXhsRead } from "./codexClient.js";
+import { requestXhsRead, requestAccountNote } from "./codexClient.js";
 
 test("missing read endpoint tells the user how to restart the old backend", async (t) => {
   t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 404 }));
@@ -24,4 +24,9 @@ test("other malformed errors and structured CLI errors retain their own classifi
     : new Response(JSON.stringify({ ok: false, code: "XHS_AUTH_REQUIRED", error: "请登录" }), { status: 401 }));
   await assert.rejects(requestXhsRead({ noteId: "invalid" }), { code: "XHS_BAD_JSON" });
   await assert.rejects(requestXhsRead({ noteId: "invalid" }), { code: "XHS_AUTH_REQUIRED", message: "请登录" });
+});
+
+test("structured note-unavailable errors are not misclassified as an outdated server", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ ok: false, code: "XHS_ACCOUNT_NOTE_MISSING", error: "作品已不在本页" }), { status: 404 }));
+  await assert.rejects(requestAccountNote({}), { code: "XHS_ACCOUNT_NOTE_MISSING" });
 });

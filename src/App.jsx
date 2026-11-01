@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MaterialsPanel } from "./MaterialsPanel.jsx";
 import { ReferenceLibrary } from "./ReferenceLibrary.jsx";
 import { ProjectLibrary } from "./ProjectLibrary.jsx";
+import { AccountPanel } from "./AccountPanel.jsx";
+import { accountWritingContext } from "../shared/account.mjs";
 import { useWorkspace } from "./useWorkspace.js";
 import { LIMITS, contextError, draftMarkdown, fingerprint, materialKey, referenceAnalysisKey, selectedMaterials, workflowKey } from "../shared/workflow.mjs";
 import { readReferenceNotes, referenceBodyProblem, referencePromptItems } from "../shared/noteDetails.mjs";
@@ -78,6 +80,7 @@ const defaultLocalClis = [
 ];
 
 const flowSteps = [
+  { id: "account", label: "我的账号", meta: "分析与档案" },
   { id: "input", label: "人设关键词", meta: "账号约束" },
   { id: "materials", label: "我的素材", meta: "文字与原文" },
   { id: "research", label: "热门搜索", meta: "手动触发" },
@@ -88,6 +91,7 @@ const flowSteps = [
 ];
 
 const generationLabels = {
+  accountAnalysis: "账号档案分析",
   materials: "素材整理",
   referenceAnalysis: "热门参考写法分析",
   draftReview: "文案素材核对",
@@ -339,6 +343,13 @@ export function App() {
   const [draftReview, setDraftReview] = field("draftReview");
   const [useReferences, setUseReferences] = field("useReferences");
   const [includeCover, setIncludeCover] = field("includeCover");
+  const [accountSnapshot, setAccountSnapshot] = field("accountSnapshot");
+  const [accountMode, setAccountMode] = field("accountMode");
+  const [accountVersion, setAccountVersion] = useState(null);
+  const [accountReady, setAccountReady] = useState(false);
+  const [accountBusy, setAccountBusy] = useState(false);
+  const accountProfile = useMemo(() => accountWritingContext(accountSnapshot || accountVersion, accountMode), [accountSnapshot, accountVersion, accountMode]);
+  const effectivePersona = accountProfile && persona === defaultPersona ? accountProfile.analysis.positioning : persona;
   const [modelConfig, setModelConfig] = useStoredState("modelConfig", defaultModelConfig);
   const [localClis, setLocalClis] = useState(defaultLocalClis);
   const [cliDetectionState, setCliDetectionState] = useState("idle");
@@ -393,9 +404,9 @@ export function App() {
   const currentMaterialKey = useMemo(() => materialKey(sourceMaterials), [sourceMaterials]);
   const materialAnalysisCurrent = materialAnalysis?.sourceKey === currentMaterialKey;
   const materialSummary = materialAnalysisCurrent && summaryConfirmed ? materialAnalysis.summary : "";
-  const currentReferenceKey = useMemo(() => referenceAnalysisKey({ ragItems, sourceMaterials, persona, keyword, writingBrief, mustInclude }), [ragItems, sourceMaterials, persona, keyword, writingBrief, mustInclude]);
+  const currentReferenceKey = useMemo(() => referenceAnalysisKey({ ragItems, sourceMaterials, persona: effectivePersona, keyword, writingBrief, mustInclude, accountProfile }), [ragItems, sourceMaterials, effectivePersona, keyword, writingBrief, mustInclude, accountProfile]);
   const referenceAnalysisCurrent = referenceAnalysis?.sourceKey === currentReferenceKey;
-  const currentWorkflowKey = useMemo(() => workflowKey({ persona, keyword, writingBrief, mustInclude, sourceMaterials, ragItems, materialSummary, referenceAnalysis: referenceAnalysisCurrent ? referenceAnalysis : null }), [persona, keyword, writingBrief, mustInclude, sourceMaterials, ragItems, materialSummary, referenceAnalysisCurrent, referenceAnalysis]);
+  const currentWorkflowKey = useMemo(() => workflowKey({ persona: effectivePersona, keyword, writingBrief, mustInclude, sourceMaterials, ragItems, materialSummary, accountProfile, referenceAnalysis: referenceAnalysisCurrent ? referenceAnalysis : null }), [effectivePersona, keyword, writingBrief, mustInclude, sourceMaterials, ragItems, materialSummary, accountProfile, referenceAnalysisCurrent, referenceAnalysis]);
   const resultsStale = topics.some((topic) => topic.contextKey && topic.contextKey !== currentWorkflowKey) || drafts.some((draft) => (draft.contextKey && draft.contextKey !== currentWorkflowKey) || (selectedTopic && draft.topicTitle !== selectedTopic.title));
   const currentReviewKey = fingerprint({ context: currentWorkflowKey, draft: selectedDraft });
   const draftReviewCurrent = draftReview?.sourceKey === currentReviewKey;
@@ -440,7 +451,7 @@ export function App() {
     setNotice({ type: "error", text });
   };
 
-  const isBusy = !workspace.ready || workspace.switching || Boolean(generatingKind) || automationRunning;
+  const isBusy = !workspace.ready || !accountReady || workspace.switching || accountBusy || Boolean(generatingKind) || automationRunning;
 
   const updateModelConfig = (channel, value) => {
     setModelConfig((current) => ({ ...current, [channel]: value }));
@@ -594,7 +605,8 @@ export function App() {
   };
 
   const workflowContext = (overrides = {}) => ({
-    persona,
+    accountProfile,
+    persona: effectivePersona,
     keyword,
     ragItems,
     writingBrief,
@@ -625,6 +637,11 @@ export function App() {
     const requestGeneration =
       channelConfig("text").provider === "cloud" ? requestCloudGeneration : requestLocalCliGeneration;
     const context = workflowContext(contextOverrides);
+    if (kind === "accountAnalysis") {
+      const result = await requestGeneration({ kind, accountInput: payload.accountInput, ...requestPayloadConfig("text") });
+      return { ...result, routeLabel: providerLabel("text") };
+    }
+    if (context.accountProfile && !accountSnapshot) setAccountSnapshot(context.accountProfile);
     const problem = contextError(context);
     if (problem) throw Object.assign(new Error(problem), { code: "BAD_REQUEST" });
     const result = await requestGeneration({
@@ -650,6 +667,7 @@ export function App() {
     const requestModelDecision =
       channelConfig("text").provider === "cloud" ? requestCloudDecision : requestLocalCliDecision;
     const context = workflowContext(contextOverrides);
+    if (context.accountProfile && !accountSnapshot) setAccountSnapshot(context.accountProfile);
 
     setGeneratingKind(`decision-${decisionKind}`);
     setCliStatus({
@@ -738,6 +756,7 @@ export function App() {
         code: error?.code || "GENERATION_FAILED",
       });
       setCustomError(message);
+      if (kind === "accountAnalysis") throw error;
       return false;
     } finally {
       setGeneratingKind("");
@@ -1276,6 +1295,7 @@ export function App() {
 
         <div className={`draft-status ${workspace.status.state}`} role="status">{workspace.status.text}<span>草稿保存在当前浏览器</span></div>
         {resultsStale ? <div className="stale-notice" role="status">素材、选题、创作要求或参考已变化。原结果已保留，请重新生成或核对后再使用。</div> : null}
+        <AccountPanel busy={!workspace.ready || workspace.switching || accountBusy || Boolean(generatingKind) || automationRunning} onBusy={setAccountBusy} onAnalyze={async (accountInput) => { const result = await runTextGeneration("accountAnalysis", { accountInput }); return result ? result.items[0] : null; }} checkModel={requireTextModel} onVersion={setAccountVersion} onReady={() => setAccountReady(true)} onMessage={(message, error) => error ? setCustomError(message) : setSuccess(message)} mode={accountMode} onMode={setAccountMode} draftVersion={accountSnapshot} onUseLatest={(version) => { setAccountSnapshot(accountWritingContext(version, accountMode === "off" ? "continue" : accountMode)); if (accountMode === "off") setAccountMode("continue"); setSuccess(`本篇已切换到账号档案 v${version.number}，原生成结果保留，请重新核对。`); }} />
         <section id="step-input" className="input-panel clay-panel mint-glow">
           <SectionHeader
             icon="入"
@@ -1311,7 +1331,7 @@ export function App() {
                 ref={personaRef}
                 maxLength={1000}
                 disabled={isBusy}
-                value={persona}
+                value={effectivePersona}
                 onChange={(event) => setPersona(event.target.value)}
               />
               <small>{persona.length} / 1000</small>

@@ -1,6 +1,7 @@
 import { contextError, selectedMaterials } from "../../shared/workflow.mjs";
+import { accountInputProblem, accountProfileProblem, portraitProblem } from "../../shared/account.mjs";
 
-const VALID_KINDS = new Set(["topics", "drafts", "coverPrompts", "materials", "referenceAnalysis", "draftReview"]);
+const VALID_KINDS = new Set(["topics", "drafts", "coverPrompts", "materials", "referenceAnalysis", "draftReview", "accountAnalysis"]);
 const VALID_DECISION_KINDS = new Set(["rag", "topic", "draft", "coverPrompt"]);
 
 export class CodexApiError extends Error {
@@ -22,6 +23,11 @@ export function validateRequest(payload) {
     throw new CodexApiError("BAD_REQUEST", "生成类型无效。");
   }
 
+  if (payload.kind === "accountAnalysis") {
+    const problem = accountInputProblem(payload.accountInput);
+    if (problem) throw new CodexApiError("BAD_REQUEST", problem);
+    return;
+  }
   validateContext(payload);
   if (payload.kind === "materials") {
     if (selectedMaterials(payload.sourceMaterials).length === 0) throw new CodexApiError("BAD_REQUEST", "请先添加并勾选文字素材。");
@@ -53,6 +59,8 @@ export function validateRequest(payload) {
 }
 
 function validateContext(payload) {
+  const accountProblem = accountProfileProblem(payload.accountProfile);
+  if (accountProblem) throw new CodexApiError("BAD_REQUEST", accountProblem);
   const problem = contextError(payload);
   if (problem) throw new CodexApiError("BAD_REQUEST", problem);
   if (payload.persona !== undefined && (typeof payload.persona !== "string" || payload.persona.length > 1000)) throw new CodexApiError("BAD_REQUEST", "账号人设最多 1000 字符。");
@@ -246,6 +254,20 @@ function assertEvidence(entry, payload) {
 }
 
 function normalizeAnalysis(kind, item, payload) {
+  if (kind === "accountAnalysis") {
+    const problem = portraitProblem(item);
+    if (problem) throw new CodexApiError("CODEX_BAD_JSON", problem, 502);
+    if (!Array.isArray(item.evidence) || !item.evidence.length || item.evidence.length > 20) throw new CodexApiError("CODEX_BAD_JSON", "账号分析需要 1 到 20 条真实原文依据。", 502);
+    const evidence = item.evidence.map((entry) => {
+      const source = payload.accountInput.samples.find((note) => note.noteId === entry?.noteId);
+      const quote = assertString(entry?.quote, "quote");
+      if (quote.length > 1000 || !source || (!source.body.includes(quote) && !source.title.includes(quote))) throw new CodexApiError("CODEX_BAD_JSON", "账号分析引用了未选作品或不存在的原文。", 502);
+      const insight = assertString(entry.insight, "insight");
+      if (insight.length > 1500) throw new CodexApiError("CODEX_BAD_JSON", "账号分析依据说明过长。", 502);
+      return { noteId: source.noteId, title: source.title, quote, insight };
+    });
+    return { ...Object.fromEntries(["summary", "positioning", "audience", "pillars", "voice", "boundaries", "hypotheses"].map((key) => [key, item[key]])), evidence, changes: stringArray(item.changes, "changes", 10) };
+  }
   const summary = assertString(item.summary, "summary");
   if (summary.length > 4000) throw new CodexApiError("CODEX_BAD_JSON", "模型摘要过长，请重试。", 502);
   if (kind === "materials") {
@@ -353,7 +375,7 @@ export function normalizeCodexItems(kind, parsed, payload) {
     throw new CodexApiError("CODEX_BAD_JSON", "模型 JSON 必须包含 items 数组。", 502);
   }
 
-  const isAnalysis = ["materials", "referenceAnalysis", "draftReview"].includes(kind);
+  const isAnalysis = ["materials", "referenceAnalysis", "draftReview", "accountAnalysis"].includes(kind);
   const expectedCount = isAnalysis ? 1 : kind === "topics" ? 10 : 5;
   if (parsed.items.length !== expectedCount) {
     throw new CodexApiError(

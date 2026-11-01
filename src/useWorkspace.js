@@ -20,6 +20,7 @@ function createProject(defaults, legacy = false) {
     topics: [], selectedTopicId: null, drafts: [], selectedDraftId: null,
     prompts: [], selectedPromptId: null, coverImage: null,
     useReferences: true, includeCover: false,
+    accountSnapshot: null, accountMode: "continue",
   };
 }
 

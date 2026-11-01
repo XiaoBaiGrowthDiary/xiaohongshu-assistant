@@ -4,6 +4,7 @@ const PROJECT_FIELDS = [
   "referenceAnalysis", "draftReview", "activeStep", "searchResults", "selectedSearchIds", "ragItems", "deletedReferences",
   "topics", "selectedTopicId", "drafts", "selectedDraftId", "prompts", "selectedPromptId", "coverImage",
   "useReferences", "includeCover",
+  "accountSnapshot", "accountMode",
 ];
 
 // Model credentials are global preferences, never part of a saved draft.

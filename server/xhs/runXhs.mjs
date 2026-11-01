@@ -327,6 +327,7 @@ function normalizeNoteData(envelope, payload) {
       source: `https://www.xiaohongshu.com/explore/${payload.noteId}`,
       noteType: /video/i.test(pickString(card, ["type", "note_type"])) ? "video" : "image",
       author: clip(pickString(user, ["nickname", "nickName", "nick_name", "name"]), 40),
+      authorId: pickString(user, ["user_id", "userId", "id"]).toLowerCase(),
       tags: normalizeTags(card),
       metrics: formatMetrics(card.interact_info || card.interactInfo || {}),
       readAt: new Date().toISOString(),
@@ -334,7 +335,7 @@ function normalizeNoteData(envelope, payload) {
   };
 }
 
-async function runXhsCommand(commandArgs, label, normalize) {
+export async function runXhsCommand(commandArgs, label, normalize) {
   const cliCommand = resolveXhsCommand();
   const cookieSource = process.env.XHS_COOKIE_SOURCE || DEFAULT_COOKIE_SOURCE;
   const args = [
@@ -439,4 +440,10 @@ export function runXhsRead(rawPayload) {
   // Numeric-only IDs would be interpreted by the CLI as listing indexes.
   const reference = /^\d+$/.test(payload.noteId) ? `https://www.xiaohongshu.com/explore/${payload.noteId}` : payload.noteId;
   return runXhsCommand(["read", reference, "--json"], "读取正文", (envelope) => normalizeNoteData(envelope, payload));
+}
+
+export function runXhsReadFromListing(noteId, index) {
+  const payload = validateXhsReadRequest({ noteId });
+  if (!Number.isInteger(index) || index < 1 || index > 30) throw new CodexApiError("BAD_REQUEST", "账号笔记列表序号无效。");
+  return runXhsCommand(["read", String(index), "--json"], "读取账号正文", (envelope) => normalizeNoteData(envelope, payload));
 }

@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "dev:fixed": "vite --host 127.0.0.1 --port 52880 --strictPort",
     "build": "vite build",
-    "test": "node --test server/codex/cloudProvider.test.mjs server/codex/materials.test.mjs server/codex/workflowApi.test.mjs server/xhs/runXhs.test.mjs server/localCli/commandPaths.test.mjs server/localCli/textInput.test.mjs src/workspaceStore.test.mjs src/codexClient.test.mjs shared/references.test.mjs shared/noteDetails.test.mjs scripts/serviceProbe.test.mjs",
+    "test": "node --test server/codex/cloudProvider.test.mjs server/codex/materials.test.mjs server/codex/workflowApi.test.mjs server/codex/taskTimeout.test.mjs server/xhs/runXhs.test.mjs server/xhs/account.test.mjs server/localCli/commandPaths.test.mjs server/localCli/textInput.test.mjs src/workspaceStore.test.mjs src/accountStore.test.mjs src/accountReview.test.mjs src/codexClient.test.mjs shared/references.test.mjs shared/noteDetails.test.mjs shared/account.test.mjs scripts/serviceProbe.test.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "preview:fixed": "vite preview --host 127.0.0.1 --port 52880 --strictPort",
     "launch:fixed": "node scripts/start-fixed.mjs",

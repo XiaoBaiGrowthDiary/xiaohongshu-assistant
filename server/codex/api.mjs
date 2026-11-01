@@ -24,6 +24,8 @@ import {
   validateXhsReadRequest,
   validateXhsSearchRequest,
 } from "../xhs/runXhs.mjs";
+import { runXhsAccountProfile, runXhsAccountPosts, runXhsAccountRead } from "../xhs/account.mjs";
+import { MODEL_TIMEOUT_MS } from "../../shared/modelTiming.mjs";
 import {
   assertLocalImageCli,
   detectLocalClis,
@@ -82,6 +84,10 @@ function serializeError(error) {
 export function codexGenerateMiddleware() {
   return async (req, res, next) => {
     const requestUrl = new URL(req.url ?? "/", "http://localhost");
+    if (requestUrl.pathname === "/api/runtime") {
+      sendJson(res, req.method === "GET" ? 200 : 405, req.method === "GET" ? { ok: true, app: "mint-atelier", modelTimeoutMs: MODEL_TIMEOUT_MS } : { ok: false, code: "METHOD_NOT_ALLOWED", error: "Only GET is supported." });
+      return;
+    }
     const handledGeneratedCover = await serveGeneratedCover(requestUrl, res, next);
     if (handledGeneratedCover) {
       return;
@@ -100,6 +106,9 @@ export function codexGenerateMiddleware() {
       "/api/cloud/cover-image",
       "/api/xhs/search",
       "/api/xhs/read",
+      "/api/xhs/account/profile",
+      "/api/xhs/account/posts",
+      "/api/xhs/account/read",
     ]);
 
     if (!handledPath.has(requestUrl.pathname)) {
@@ -118,6 +127,13 @@ export function codexGenerateMiddleware() {
 
     try {
       const payload = await readJsonBody(req);
+
+      const accountRoutes = { "/api/xhs/account/profile": runXhsAccountProfile, "/api/xhs/account/posts": runXhsAccountPosts, "/api/xhs/account/read": runXhsAccountRead };
+      if (accountRoutes[requestUrl.pathname]) {
+        const result = await accountRoutes[requestUrl.pathname](payload);
+        sendJson(res, 200, { ok: true, ...result, generatedAt: new Date().toISOString() });
+        return;
+      }
 
       if (requestUrl.pathname === "/api/local-cli/detect") {
         const clis = await detectLocalClis(payload);
@@ -266,12 +282,13 @@ export function codexGenerateMiddleware() {
       const prompt = buildCodexPrompt(payload);
       const localResult = requestUrl.pathname === "/api/local-cli/generate"
         ? await runLocalTextCli({
+            taskKind: payload.kind,
             prompt,
             modelName: payload.modelName,
             cliId: payload.cliId,
             cliCommand: payload.cliCommand,
           })
-        : await runCodex({ prompt, modelName: payload.modelName });
+        : await runCodex({ prompt, modelName: payload.modelName, taskKind: payload.kind });
       const parsed = parseJsonFromCodex(localResult.raw);
       const items = normalizeCodexItems(payload.kind, parsed, payload);
 

@@ -1,5 +1,6 @@
 import { buildCoverImagePrompt, publishGeneratedPng } from "./coverImage.mjs";
 import { buildCodexPrompt, buildDecisionPrompt } from "./prompts.mjs";
+import { MODEL_TIMEOUT_MS, modelTimeoutMessage } from "../../shared/modelTiming.mjs";
 import {
   CodexApiError,
   normalizeDecisionResult,
@@ -9,8 +10,7 @@ import {
 
 const CHAT_ENDPOINT = "/chat/completions";
 const IMAGE_ENDPOINT = "/images/generations";
-const TEXT_TIMEOUT_MS = 180_000;
-const IMAGE_TIMEOUT_MS = 300_000;
+const IMAGE_DOWNLOAD_TIMEOUT_MS = 300_000;
 
 function compactText(value, maxLength = 800) {
   return String(value ?? "")
@@ -125,7 +125,7 @@ function endpointPreview(url) {
   return `POST ${displayUrl.toString()}`;
 }
 
-async function fetchJson({ url, apiKey, body, timeoutMs }) {
+async function fetchJson({ url, apiKey, body, timeoutMs, timeoutMessage }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -169,7 +169,7 @@ async function fetchJson({ url, apiKey, body, timeoutMs }) {
       throw error;
     }
     if (error?.name === "AbortError") {
-      throw new CodexApiError("API_TIMEOUT", "云端 API 请求超时，请稍后重试。", 504);
+      throw new CodexApiError("API_TIMEOUT", timeoutMessage || "云端 API 请求超时，请稍后重试。", 504);
     }
     throw new CodexApiError(
       "API_HTTP_ERROR",
@@ -247,7 +247,7 @@ function parseCloudDecision(raw, payload) {
 }
 
 export function buildCloudChatBody({ payload, modelName, baseUrl, prompt }) {
-  const outputTokens = ["drafts", "materials", "referenceAnalysis", "draftReview"].includes(payload.kind) ? 5200 : 3200;
+  const outputTokens = ["drafts", "materials", "referenceAnalysis", "draftReview", "accountAnalysis"].includes(payload.kind) ? 5200 : 3200;
   const body = {
     model: modelName,
     messages: [
@@ -284,7 +284,8 @@ export async function runCloudGeneration(payload) {
   const result = await fetchJson({
     url: endpointUrl,
     apiKey,
-    timeoutMs: TEXT_TIMEOUT_MS,
+    timeoutMs: MODEL_TIMEOUT_MS,
+    timeoutMessage: modelTimeoutMessage("云端 API", payload.kind),
     body: buildCloudChatBody({ payload, modelName, baseUrl, prompt }),
   });
   const raw = extractGeneratedText(result.json);
@@ -306,7 +307,8 @@ export async function runCloudDecision(payload) {
   const result = await fetchJson({
     url: endpointUrl,
     apiKey,
-    timeoutMs: TEXT_TIMEOUT_MS,
+    timeoutMs: MODEL_TIMEOUT_MS,
+    timeoutMessage: modelTimeoutMessage("云端 API"),
     body: buildCloudChatBody({ payload, modelName, baseUrl, prompt }),
   });
   const raw = extractGeneratedText(result.json);
@@ -352,7 +354,7 @@ async function fetchImageBytes(imageUrl) {
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), IMAGE_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), IMAGE_DOWNLOAD_TIMEOUT_MS);
 
   try {
     const response = await fetch(url, { signal: controller.signal });
@@ -416,7 +418,8 @@ export async function runCloudCoverImage(payload) {
   const result = await fetchJson({
     url: endpointUrl,
     apiKey,
-    timeoutMs: IMAGE_TIMEOUT_MS,
+    timeoutMs: MODEL_TIMEOUT_MS,
+    timeoutMessage: modelTimeoutMessage("云端封面生成"),
     body: imageBody({ payload, modelName }),
   });
   const imageBytes = await extractImageBytes(result.json);

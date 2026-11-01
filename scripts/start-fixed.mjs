@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { resolveNpmCli } from "../server/localCli/commandPaths.mjs";
-import { supportsNoteReading } from "./serviceProbe.mjs";
+import { supportsNoteReading, supportsAccountProfiles, supportsCurrentModelTiming } from "./serviceProbe.mjs";
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const host = "127.0.0.1";
@@ -91,8 +91,8 @@ async function waitForServer() {
 }
 
 if (await isAppRunning()) {
-  if (!(await supportsNoteReading(url))) {
-    console.error("检测到已运行的薄荷工坊缺少正文读取接口，或该接口暂时无法响应。");
+  if (!(await supportsNoteReading(url)) || !(await supportsAccountProfiles(url)) || !(await supportsCurrentModelTiming(url))) {
+    console.error("检测到旧版或未就绪的薄荷工坊后台，尚未加载当前账号功能或 15 分钟模型等待设置。");
     console.error("请先保存草稿，在原启动窗口按 q 并回车（或关闭该窗口），再重新运行启动脚本。");
     process.exitCode = 1;
   } else {

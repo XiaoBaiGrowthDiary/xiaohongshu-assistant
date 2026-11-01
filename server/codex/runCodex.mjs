@@ -5,8 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodexApiError } from "./validation.mjs";
 import { resolveCodexCommand } from "../localCli/commandPaths.mjs";
-
-const TIMEOUT_MS = 180_000;
+import { MODEL_TIMEOUT_MS, modelTimeoutMessage } from "../../shared/modelTiming.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -44,7 +43,7 @@ function commandPreview(args) {
   return ["codex", ...safeArgs].join(" ");
 }
 
-export async function runCodex({ prompt, modelName }) {
+export async function runCodex({ prompt, modelName, taskKind }) {
   const codexPath = resolveCodexCommand();
   const workDir = await mkdtemp(path.join(tmpdir(), "xhs-g4-codex-"));
   const outputPath = path.join(workDir, "last-message.txt");
@@ -70,8 +69,8 @@ export async function runCodex({ prompt, modelName }) {
         if (settled) return;
         settled = true;
         child.kill("SIGTERM");
-        reject(new CodexApiError("CODEX_TIMEOUT", "Codex CLI 执行超时，请稍后重试。", 504));
-      }, TIMEOUT_MS);
+        reject(new CodexApiError("CODEX_TIMEOUT", modelTimeoutMessage("Codex CLI", taskKind), 504));
+      }, MODEL_TIMEOUT_MS);
 
       child.stdout.on("data", (chunk) => {
         stdout += chunk;

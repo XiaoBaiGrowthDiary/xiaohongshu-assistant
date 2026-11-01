@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { supportsNoteReading } from "./serviceProbe.mjs";
+import { supportsNoteReading, supportsAccountProfiles, supportsCurrentModelTiming } from "./serviceProbe.mjs";
 
 test("local capability check recognizes the note-read API without invoking the CLI", async () => {
   let calls = 0;
@@ -25,4 +25,24 @@ test("local capability check rejects old servers, SPA fallback pages and unavail
   ]) {
     await t.test(name, async () => assert.equal(await supportsNoteReading("http://127.0.0.1:52880", response), false));
   }
+});
+
+test("account capability check uses GET and detects a backend predating account profiles", async () => {
+  const fake = async (url, options) => {
+    assert.equal(new URL(url).pathname, "/api/xhs/account/profile");
+    assert.equal(options.method, "GET");
+    return new Response(JSON.stringify({ code: "METHOD_NOT_ALLOWED" }), { status: 405 });
+  };
+  assert.equal(await supportsAccountProfiles("http://127.0.0.1:52880", fake), true);
+  assert.equal(await supportsAccountProfiles("http://127.0.0.1:52880", async () => new Response(null, { status: 404 })), false);
+});
+
+test("launcher rejects old timing policies and recognizes the fifteen-minute backend without running models", async () => {
+  const response = (milliseconds) => async (url, options) => {
+    assert.equal(new URL(url).pathname, "/api/runtime"); assert.equal(options.method, "GET");
+    return new Response(JSON.stringify({ ok: true, app: "mint-atelier", modelTimeoutMs: milliseconds }), { status: 200 });
+  };
+  assert.equal(await supportsCurrentModelTiming("http://127.0.0.1:52880", response(180000)), false);
+  assert.equal(await supportsCurrentModelTiming("http://127.0.0.1:52880", response(900000)), true);
+  assert.equal(await supportsCurrentModelTiming("http://127.0.0.1:52880", async () => new Response(null, { status: 404 })), false);
 });

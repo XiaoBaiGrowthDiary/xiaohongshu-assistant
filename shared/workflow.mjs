@@ -87,11 +87,12 @@ export function workflowKey(context) {
     references: referenceKey(context.ragItems),
     materialSummary: context.materialSummary,
     referenceAnalysis: context.referenceAnalysis,
+    ...(context.accountProfile ? { accountProfile: context.accountProfile } : {}),
   });
 }
 
 export function referenceAnalysisKey(context) {
-  return fingerprint({ references: referenceKey(context.ragItems), materials: materialKey(context.sourceMaterials), persona: context.persona, keyword: context.keyword, writingBrief: context.writingBrief, mustInclude: context.mustInclude });
+  return fingerprint({ references: referenceKey(context.ragItems), materials: materialKey(context.sourceMaterials), persona: context.persona, keyword: context.keyword, writingBrief: context.writingBrief, mustInclude: context.mustInclude, ...(context.accountProfile ? { accountProfile: context.accountProfile } : {}) });
 }
 
 export function draftMarkdown(draft) {

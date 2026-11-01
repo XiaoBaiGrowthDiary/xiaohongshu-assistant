@@ -6,9 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodexApiError } from "./validation.mjs";
 import { resolveCodexCommand } from "../localCli/commandPaths.mjs";
+import { MODEL_TIMEOUT_MS, modelTimeoutMessage } from "../../shared/modelTiming.mjs";
 
 const GENERATED_ROUTE_PREFIX = "/generated/covers/";
-const IMAGEGEN_TIMEOUT_MS = 600_000;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const generatedDir = path.join(tmpdir(), "xhs-g4-generated-covers");
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -217,8 +217,8 @@ export async function runCoverImagegen(payload) {
         if (settled) return;
         settled = true;
         child.kill("SIGTERM");
-        reject(new CodexApiError("CODEX_TIMEOUT", "Codex CLI imagegen 执行超时，请稍后重试。", 504));
-      }, IMAGEGEN_TIMEOUT_MS);
+        reject(new CodexApiError("CODEX_TIMEOUT", modelTimeoutMessage("Codex CLI 封面生成"), 504));
+      }, MODEL_TIMEOUT_MS);
 
       child.stdout.on("data", (chunk) => {
         stdout += chunk.toString("utf8");
@@ -285,6 +285,7 @@ export async function runCoverImagegen(payload) {
       image,
     };
   } finally {
+    if (path.dirname(workDir) !== path.resolve(tmpdir())) throw new Error("拒绝清理临时目录以外的路径。");
     await rm(workDir, { force: true, recursive: true });
   }
 }

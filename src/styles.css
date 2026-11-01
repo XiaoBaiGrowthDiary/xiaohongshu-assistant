@@ -1704,3 +1704,23 @@ details .field { margin-top: 10px; }
 .reference-toolbar button { min-height: 33px; padding: 7px 12px; font-size: 11px; }
 .rag-item .reference-read-error, .reference-read-error { margin: 10px 0; padding: 10px 12px; border-radius: 13px; color: #9c4862; background: #fff0f3; font-size: 12px; line-height: 1.7; white-space: normal; }
 .reference-source-link { display: inline-block; margin-top: 6px; color: #337f70; font-size: 12px; text-underline-offset: 3px; }
+
+.account-panel { margin-top: 18px; padding: 22px; scroll-margin-top: 12px; }
+.account-panel .field { margin: 13px 0; }
+.account-panel .field textarea { height: 94px; min-height: 74px; max-height: 420px; }
+.account-panel .field select { width: 100%; min-height: 40px; padding: 9px 12px; border: 1px solid #e4ddeb; border-radius: 15px; background: #fffafd; color: #625371; font: inherit; }
+.account-save-status { color: #647e74; font-size: 11px; line-height: 1.6; }
+.account-progress { padding: 12px; border-radius: 15px; color: #286c5c; background: #e6f8f0; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.account-samples { margin-top: 15px; color: #6e5d80; font-size: 12px; }
+.account-samples > .material-item { margin-top: 9px; }
+.account-samples .field textarea { height: 180px; }
+.account-sample-check { display: flex; align-items: flex-start; gap: 8px; line-height: 1.7; overflow-wrap: anywhere; }
+.account-sample-check input { margin-top: 4px; flex: none; }
+.account-writing { margin-top: 17px; padding-top: 8px; border-top: 1px solid #e8dfee; }
+.account-candidate .evidence-item p { white-space: pre-wrap; }
+.account-review { margin: 15px 0; padding: 15px; border: 1px solid #d8ede4; border-radius: 20px; background: #f4fff9a6; scroll-margin-top: 14px; }
+.account-review-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.account-review-heading h3 { margin: 0; color: #3a5d52; font-size: 16px; }
+.account-review-heading > strong { padding: 5px 9px; border-radius: 12px; background: #e7f2ec; color: #537568; font-size: 11px; }
+.account-review > .analysis-box { background: #fbf7ff; }
+.account-review .evidence-item p { white-space: pre-wrap; }

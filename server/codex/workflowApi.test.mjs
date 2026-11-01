@@ -12,6 +12,7 @@ const topic = { title: "新手徒步实际花费", angle: "交通与路况", aud
 const draft = { title: "这次徒步的真实花费", body: `${text} #周末徒步[话题]#`, coverDirection: "登山鞋与路线图静物", materialIds: ["source-1"], missingInformation: [] };
 
 function modelResult(prompt) {
+  if (prompt.includes("Task: Analyze this creator's account")) return { items: [{ summary: "真实经历分享", positioning: "周末户外记录", audience: "户外新手（待验证）", pillars: ["真实花费"], voice: ["明确数字与提醒"], boundaries: ["不虚构经历"], hypotheses: ["尝试路线复盘"], evidence: [{ noteId: "64abcdef1234567890abcdef", quote: "下山台阶湿滑", insight: "结尾保留限制信息" }], changes: ["首次分析"] }] };
   if (prompt.includes("Decision kind:")) return { selectedIds: ["topic-1"], reason: "选题有素材依据" };
   if (prompt.includes("Task: Organize")) return { items: [{ summary: "交通 36 元，用时 3 小时，注意湿滑台阶", facts: [{ materialId: "source-1", quote: "下山台阶湿滑", insight: "保留路况限制" }], suggestedKeywords: ["周末徒步"], missingInformation: [] }] };
   if (prompt.includes("Task: Analyze only")) return { items: [{ summary: "可参考清单式标题", patterns: [{ referenceId: "reference-1", titlePattern: "费用清单", opening: "摘要未展示", structure: "无法从摘要判断", ending: "无法从摘要判断" }], recommendedApproach: "结合个人真实花费写清单" }] };
@@ -125,4 +126,50 @@ test("note detail API validates input, returns full text, and never forwards raw
   assert.ok(read.body.generatedAt);
   assert.doesNotMatch(JSON.stringify(read.body), /private-token|private-cookie|xsec_token/);
   assert.equal(launch.mock.calls.length, 1);
+});
+
+test("cloud account analysis API preserves historical text and rejects invalid sample input before model calls", async (t) => {
+  const prompts = [];
+  const remote = t.mock.method(globalThis, "fetch", async (_url, options) => {
+    const prompt = JSON.parse(options.body).messages[1].content;
+    prompts.push(prompt);
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(modelResult(prompt)) } }] }), { status: 200 });
+  });
+  const input = { profile: { userId: "65abcdef1234567890abcdef", nickname: "记录者", bio: "真实体验" }, goal: "继续分享", facts: "真实经历", samples: [{ noteId: "64abcdef1234567890abcdef", title: "周末记录", body: text }] };
+  const config = { modelName: "fixture", apiKey: "test-only", baseUrl: "http://127.0.0.1:59999/v1" };
+  const result = await request("/api/cloud/generate", { ...config, kind: "accountAnalysis", accountInput: input });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.items[0].evidence[0].quote, "下山台阶湿滑");
+  assert.ok(prompts[0].includes(text));
+  const invalid = await request("/api/cloud/generate", { ...config, kind: "accountAnalysis", accountInput: { ...input, samples: [{ ...input.samples[0], body: "" }] } });
+  assert.equal(invalid.status, 400);
+  assert.equal(remote.mock.calls.length, 1);
+});
+
+test("account profile, listing, detail and local analysis routes compose without touching real accounts", async (t) => {
+  const userId = "65abcdef1234567890abcdef", noteId = "64abcdef1234567890abcdef";
+  const launch = t.mock.method(childProcess, "spawn", (_command, args) => {
+    const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
+    const prompt = args[args.indexOf("--prompt") + 1];
+    let response;
+    if (args.includes("--prompt")) response = { role: "assistant", content: JSON.stringify(modelResult(prompt)) };
+    else if (args[2] === "user") response = { ok: true, data: { user_id: userId, nickname: "体验记录", desc: "户外体验" } };
+    else if (args[2] === "user-posts") response = { ok: true, data: { notes: [{ note_id: noteId, title: "周末记录", user: { user_id: userId } }] } };
+    else if (args[2] === "read") response = { ok: true, data: { noteId, title: "周末记录", desc: text, user: { userId } } };
+    else throw new Error("Unexpected fixture command");
+    queueMicrotask(() => { child.stdout.end(JSON.stringify(response) + "\n"); child.stderr.end(); setImmediate(() => child.emit("close", 0)); });
+    return child;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { launch.mock.restore(); syncBuiltinESMExports(); });
+  const profile = await request("/api/xhs/account/profile", { userId });
+  assert.equal(profile.status, 200);
+  const posts = await request("/api/xhs/account/posts", { userId });
+  assert.equal(posts.status, 200);
+  const detail = await request("/api/xhs/account/read", { userId, noteId });
+  assert.equal(detail.status, 200);
+  const analysis = await request("/api/local-cli/generate", { kind: "accountAnalysis", cliId: "custom", cliCommand: "offline-fixture", accountInput: { profile: profile.body.profile, goal: "继续分享", facts: "真实体验", samples: [{ ...posts.body.notes[0], body: detail.body.note.body }] } });
+  assert.equal(analysis.status, 200, JSON.stringify(analysis.body));
+  assert.equal(analysis.body.items[0].positioning, "周末户外记录");
+  assert.equal(analysis.body.items[0].evidence[0].noteId, noteId);
 });

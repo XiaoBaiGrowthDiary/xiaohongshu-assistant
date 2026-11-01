@@ -46,6 +46,8 @@ function baseContext(payload) {
     `Keyword: ${compactText(payload.keyword, 160)}`,
     `Writing brief: ${JSON.stringify(payload.writingBrief || "")}`,
     `Must preserve: ${JSON.stringify(payload.mustInclude || "")}`,
+    `Confirmed account profile and version: ${JSON.stringify(payload.accountProfile || null)}`,
+    "Use the confirmed account profile for positioning, voice and topic continuity. Treat its audience and hypotheses as assumptions, not verified audience demographics. Mode explore allows new topics and expression while preserving confirmed factual boundaries. The current brief may intentionally change style. Historical articles are not evidence that an old experience happened again. Never invent personal facts from the profile; current source materials and explicit requirements take priority. Explain account fit and fresh value in topic reasons when a profile is supplied.",
     "",
     "Personal source materials (complete original text; factual basis for this creator):",
     JSON.stringify(selectedMaterials(payload.sourceMaterials).map(({ id, title, content }) => ({ id, title, content }))),
@@ -89,6 +91,17 @@ function formatDecisionOptions(options = []) {
 }
 
 export function buildCodexPrompt(payload) {
+  if (payload.kind === "accountAnalysis") {
+    return [
+      ...JSON_ONLY_RULES,
+      "Task: Analyze this creator's account from the COMPLETE selected note text, preserving endings. Return Chinese JSON. Excludes text inside images, video subtitles and comments.",
+      "Profile, goal and creator-confirmed facts: " + JSON.stringify({ profile: payload.accountInput.profile, goal: payload.accountInput.goal, facts: payload.accountInput.facts }),
+      "Selected historical works (not new personal source material): " + JSON.stringify(payload.accountInput.samples),
+      "Previous confirmed analysis: " + JSON.stringify(payload.accountInput.previous),
+      "Infer content pillars, positioning and reusable voice from these samples. Every major observation should have supporting evidence with an exact contiguous quote from a provided title/body and its noteId. Do not invent a noteId or quote. Mention limited sample coverage. Distinguish observations from hypotheses. Do not infer follower demographics from follower counts. Missing metrics stay unknown. Relative engagement is not proof a writing technique caused success. Compare available recent, high and ordinary engagement samples with publication timing limits. Preserve creator-confirmed facts and goals; propose changes separately without overwriting them. List specific changes from the previous confirmed analysis, or say this is the first analysis.",
+      'Return exactly {"items":[{"summary":"string <=3000 chars","positioning":"string <=1000","audience":"reader hypothesis <=1000","pillars":["string"],"voice":["string"],"boundaries":["string"],"hypotheses":["string"],"evidence":[{"noteId":"provided id","quote":"exact source quote <=1000","insight":"what this supports <=1500"}],"changes":["string"]}]}. Each of pillars/voice/boundaries/hypotheses: at most 8 entries of at most 400 chars. Evidence: 1 to 20 entries. Changes: at most 10 concise entries.',
+    ].join("\n");
+  }
   if (payload.kind === "materials") {
     return [
       baseContext(payload),
