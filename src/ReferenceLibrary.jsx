@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { LIMITS, contextError } from "../shared/workflow.mjs";
 import { hasReferenceBody, noteIdForReference } from "../shared/noteDetails.mjs";
+import { useConfirmation } from "./useConfirmation.jsx";
 
-export function ReferenceLibrary({ items, deletedItems = [], onChange, onDelete, onRestore, onRead, readProgress, busy, analysis, analysisCurrent, onAnalyze, onMessage }) {
+export function ReferenceLibrary({ items, deletedItems = [], onChange, onDelete, onRestore, onPurge, onEmptyDeleted, onRead, readProgress, busy, analysis, analysisCurrent, onAnalyze, onMessage }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const unread = items.filter((item) => !hasReferenceBody(item)).length;
   const budgetProblem = contextError({ ragItems: items });
+  const [confirm, confirmation] = useConfirmation();
+  const purge = async (item) => { if (await confirm(`永久删除参考「${item.title}」？本篇保存的这条已删除参考及其原文备份将被清除，无法恢复。其他参考和其他草稿会保留。`)) onPurge(item.id); };
+  const empty = async () => { if (await confirm(`清空本篇的 ${deletedItems.length} 条已删除参考？这些参考及其原文备份将被清除，无法恢复。正在使用的参考和其他草稿会保留。`)) onEmptyDeleted(); };
   const updateBody = (id, value, original = false) => onChange((current) => current.map((item) => item.id === id ? {
     ...item, body: value, bodySource: original ? "xhs" : "manual",
     detailStatus: value.trim() ? original ? "ready" : "manual" : "idle",
@@ -21,6 +25,7 @@ export function ReferenceLibrary({ items, deletedItems = [], onChange, onDelete,
   };
   return (
     <>
+      {confirmation}
       <div className="rag-stack">
         {items.length ? items.map((item) => <article className="rag-item" key={item.id}>
           <div className="reference-item-heading"><strong>{item.title}</strong><button type="button" className="delete-button" disabled={busy} onClick={() => onDelete(item.id)} aria-label={`删除参考：${item.title}`} title="删除参考，可在已删除参考中恢复">删除</button></div>
@@ -42,7 +47,7 @@ export function ReferenceLibrary({ items, deletedItems = [], onChange, onDelete,
         </article>) : <p className="help-text">勾选搜索结果加入参考，或粘贴你已读过的热门帖文字。</p>}
       </div>
       {budgetProblem ? <p className="reference-read-error" role="alert">{budgetProblem} 已读取的原文会保留，请精简用于分析的正文或减少参考。</p> : null}
-      {deletedItems.length ? <details className="deleted-references"><summary>已删除参考（{deletedItems.length}）</summary>{deletedItems.map((item) => <div className="deleted-item" key={item.id}><span title={item.title}>{item.title}</span><button type="button" className="restore-button" disabled={busy} onClick={() => onRestore(item.id)} aria-label={`恢复参考：${item.title}`}>恢复</button></div>)}</details> : null}
+      {deletedItems.length ? <details className="deleted-references"><summary>已删除参考（{deletedItems.length}）</summary><button type="button" className="text-button trash-empty" disabled={busy} onClick={empty}>清空本篇已删除参考</button>{deletedItems.map((item) => <div className="deleted-item" key={item.id}><span title={item.title}>{item.title}</span><div className="deleted-item-actions"><button type="button" className="restore-button" disabled={busy} onClick={() => onRestore(item.id)} aria-label={`恢复参考：${item.title}`}>恢复</button><button type="button" className="delete-button purge-button" disabled={busy} onClick={() => purge(item)} aria-label={`永久删除参考：${item.title}`}>永久删除</button></div></div>)}</details> : null}
       <details className="manual-reference"><summary>手动加入文字参考</summary>
         <label className="field"><span>参考标题</span><input value={title} maxLength={160} disabled={busy} onChange={(event) => setTitle(event.target.value)} /></label>
         <label className="field"><span>粘贴参考正文</span><textarea value={body} disabled={busy} onChange={(event) => setBody(event.target.value)} /><small>{body.length} / {LIMITS.referenceCharacters} 字符</small></label>

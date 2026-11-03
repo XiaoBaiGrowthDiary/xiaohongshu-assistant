@@ -4,7 +4,9 @@
 
 维护仓库：[XiaoBaiGrowthDiary/xiaohongshu-assistant](https://github.com/XiaoBaiGrowthDiary/xiaohongshu-assistant)。项目使用 React + Vite，保持桌面端三栏工作台；账号昵称、头像和粉丝数来自当前已确认连接的小红书账号。
 
-当前版本里程碑：**xiaohongshu-assistant V2.0**。
+当前版本里程碑：**xiaohongshu-assistant V2.1**（包版本 `2.1.0`）。完整更新说明见 [CHANGELOG](CHANGELOG.md)。
+
+V2.1 补齐正式账号档案编辑与历史恢复、草稿及参考回收站永久删除 / 清空，改善素材整理兼容、选题与文案引用报错，并拆分开发和本机个人创作记录。
 
 ## 快速启动
 
@@ -36,7 +38,7 @@
 
 草稿和账号档案保存在当前浏览器、当前站点地址的 IndexedDB，模型配置保存在 localStorage。等待保存成功后，正常关闭网页和 PowerShell 不会删除数据；继续用同一浏览器的普通窗口打开固定地址即可恢复。
 
-草稿支持“最近删除”恢复，热门参考支持“已删除参考”恢复。更换浏览器、地址或清除站点数据不会自动同步；GitHub 备份的是代码与文档，不包含浏览器中的草稿和账号档案。操作与排错见 [使用指南](docs/USER_GUIDE.md)。
+草稿支持“最近删除”恢复，热门参考支持“已删除参考”恢复；两个回收区域均可单条永久删除或清空，确认后无法恢复。正式账号档案可直接编辑、重新分析，或从历史版本恢复为待确认副本。更换浏览器、地址或清除站点数据不会自动同步；GitHub 备份的是代码与文档，不包含浏览器中的草稿和账号档案。操作与排错见 [使用指南](docs/USER_GUIDE.md)。
 
 ## 文档导航
 
@@ -44,7 +46,9 @@
 | --- | --- |
 | [README.md](README.md) | 项目介绍、启动和阅读入口 |
 | [AGENTS.md](AGENTS.md) | AI 与开发者需要遵守的稳定协作规则 |
-| [TASK_STATE.md](TASK_STATE.md) | 当前进度、决策、待办及最近验证 |
+| [TASK_STATE.md](TASK_STATE.md) | 当前开发进度、Bug、待办及最近验证 |
+| [CHANGELOG.md](CHANGELOG.md) | 版本更新说明与验证范围 |
+| `CREATION_STATE.local.md`（可选、本机） | 个人创作进度与已确认偏好，默认不进入 Git |
 | [USER_GUIDE.md](docs/USER_GUIDE.md) | 日常使用、保存恢复与常见问题 |
 | [SPEC.md](docs/SPEC.md) | 当前产品行为、限制与验收标准 |
 | [DESIGN.md](docs/DESIGN.md) | 视觉、布局和组件规范 |

@@ -1704,6 +1704,16 @@ details .field { margin-top: 10px; }
 .deleted-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 7px; color: #88788e; font-size: 11px; }
 .deleted-item + .deleted-item { border-top: 1px solid #e8dfee; }
 .deleted-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deleted-item-actions { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.deleted-project-list .deleted-item { align-items: stretch; flex-direction: column; gap: 6px; }
+.deleted-project-list .deleted-item-actions { align-self: flex-end; }
+.purge-button { font-size: 11px; padding: 5px 6px; min-height: 29px; }
+.trash-empty { color: #a14b76; font-size: 11px; margin: 4px 7px; }
+.confirmation-dialog { position: fixed; inset: 0; margin: auto; width: min(480px, calc(100vw - 48px)); padding: 26px; color: #4a405f; border: 1px solid #eadbea; }
+.confirmation-dialog::backdrop { background: rgb(65 49 84 / 28%); backdrop-filter: blur(3px); }
+.confirmation-dialog h3 { margin: 0 0 12px; }
+.confirmation-dialog p { line-height: 1.8; margin: 0 0 20px; }
+.confirmation-dialog .reference-toolbar { justify-content: flex-end; }
 .deleted-references { margin: 13px 0; padding: 9px; border-radius: 16px; background: #f7f0fa; color: #8a718e; font-size: 12px; }
 .project-empty { padding: 0 4px; }
 

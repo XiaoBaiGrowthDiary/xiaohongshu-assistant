@@ -233,11 +233,41 @@ function stringArray(value, name, max = 30) {
   return value.map((entry) => entry.trim());
 }
 
-function sourceIds(item, payload) {
+function sourceIds(item, payload, kind, index) {
   const allowedIds = new Set(selectedMaterials(payload.sourceMaterials).map((material) => material.id));
-  const materialIds = stringArray(item.materialIds ?? item.material_ids ?? item["素材编号"], "materialIds", 12);
-  if (new Set(materialIds).size !== materialIds.length || materialIds.some((id) => !allowedIds.has(id)) || (allowedIds.size > 0 && materialIds.length === 0)) {
-    throw new CodexApiError("CODEX_BAD_JSON", "模型返回的素材依据缺失或引用了未选中的素材，请重试。", 502);
+  const rawIds = item.materialIds ?? item.material_ids ?? item["素材编号"];
+  const location = `第 ${index + 1} 个${kind === "topics" ? "选题" : "文案"}`;
+  const reject = (problem, message, counts = {}) => {
+    throw new CodexApiError("CODEX_BAD_JSON", `${location}的素材依据${message}`, 502, {
+      kind, itemIndex: index + 1, field: "materialIds", problem, allowedCount: allowedIds.size, ...counts,
+    });
+  };
+  if (Array.isArray(rawIds) && rawIds.length > 12) {
+    reject("too_many_ids", "编号过多，每条结果最多引用 12 条素材。", { providedCount: rawIds.length });
+  }
+  let materialIds;
+  try {
+    materialIds = stringArray(rawIds, "materialIds", 12);
+  } catch (error) {
+    if (error instanceof CodexApiError && error.code === "CODEX_BAD_JSON") {
+      reject("invalid_format", "格式错误：materialIds 必须是有效的编号文字数组。");
+    }
+    throw error;
+  }
+  const uniqueIds = new Set(materialIds);
+  if (uniqueIds.size !== materialIds.length) {
+    reject("duplicate_ids", "含有重复编号，同一条结果中每个素材编号只能出现一次。", {
+      providedCount: materialIds.length, duplicateCount: materialIds.length - uniqueIds.size,
+    });
+  }
+  const invalidCount = materialIds.filter((id) => !allowedIds.has(id)).length;
+  if (invalidCount) {
+    reject("unselected_ids", "引用了未选中的素材；只能逐字复制本次选中素材的完整编号。", {
+      providedCount: materialIds.length, invalidCount,
+    });
+  }
+  if (allowedIds.size > 0 && materialIds.length === 0) {
+    reject("missing_ids", "缺失：materialIds 至少需要包含一个本次选中的素材编号。", { providedCount: 0 });
   }
   return { materialIds, missingInformation: stringArray(item.missingInformation ?? item.missing_information ?? item["待补充信息"], "missingInformation") };
 }
@@ -375,12 +405,17 @@ export function normalizeCodexItems(kind, parsed, payload) {
     throw new CodexApiError("CODEX_BAD_JSON", "模型 JSON 必须包含 items 数组。", 502);
   }
 
+  if (kind === "materials" && parsed.items.length > 1) {
+    return [combineMaterialReports(parsed.items, payload)];
+  }
   const isAnalysis = ["materials", "referenceAnalysis", "draftReview", "accountAnalysis"].includes(kind);
   const expectedCount = isAnalysis ? 1 : kind === "topics" ? 10 : 5;
   if (parsed.items.length !== expectedCount) {
     throw new CodexApiError(
       "CODEX_BAD_JSON",
-      `模型返回数量不正确：需要 ${expectedCount} 条，实际 ${parsed.items.length} 条。`,
+      kind === "materials"
+        ? `素材整理需要 1 份汇总报告，实际返回 ${parsed.items.length} 份。素材可以有多条；完整原文仍保留，请检查结果格式后再重试。`
+        : `模型返回数量不正确：需要 ${expectedCount} 条，实际 ${parsed.items.length} 条。`,
       502,
     );
   }
@@ -388,12 +423,51 @@ export function normalizeCodexItems(kind, parsed, payload) {
   if (isAnalysis) return [normalizeAnalysis(kind, parsed.items[0], payload)];
 
   if (kind === "topics") {
-    return parsed.items.map((item, index) => ({ ...normalizeTopic(item, index), ...sourceIds(item, payload) }));
+    return parsed.items.map((item, index) => ({ ...normalizeTopic(item, index), ...sourceIds(item, payload, kind, index) }));
   }
 
   if (kind === "drafts") {
-    return parsed.items.map((item, index) => ({ ...normalizeDraft(item, index, payload.selectedTopic.title), ...sourceIds(item, payload) }));
+    return parsed.items.map((item, index) => ({ ...normalizeDraft(item, index, payload.selectedTopic.title), ...sourceIds(item, payload, kind, index) }));
   }
 
   return parsed.items.map(normalizePrompt);
+}
+
+function combineMaterialReports(items, payload) {
+  const materials = selectedMaterials(payload.sourceMaterials);
+  const reject = (problem, message) => {
+    throw new CodexApiError("CODEX_BAD_JSON", `素材整理返回了 ${items.length} 份报告：${message}完整原文仍保留。`, 502, {
+      kind: "materials", field: "items", problem, materialCount: materials.length, reportCount: items.length,
+    });
+  };
+  if (items.length !== materials.length) {
+    reject("report_count", "只有每条选中素材各对应一份的合法结果才能合并，请返回一份整体汇总。");
+  }
+  const used = new Set();
+  const parts = items.map((item, index) => {
+    let part;
+    try { part = normalizeAnalysis("materials", item, payload); }
+    catch (error) {
+      if (error instanceof CodexApiError) reject("invalid_report", `第 ${index + 1} 份未通过校验：${error.message}`);
+      throw error;
+    }
+    const ids = new Set(part.facts.map((fact) => fact.materialId));
+    if (ids.size !== 1 || used.has([...ids][0])) {
+      reject("ambiguous_sources", `第 ${index + 1} 份的素材对应关系不明确或重复，不能自动合并。请返回一份整体汇总。`);
+    }
+    const id = [...ids][0];
+    used.add(id);
+    return { ...part, sourceTitle: materials.find((material) => material.id === id).title };
+  });
+  const merged = {
+    summary: parts.map((part) => `【${part.sourceTitle}】\n${part.summary}`).join("\n\n"),
+    facts: parts.flatMap((part) => part.facts),
+    suggestedKeywords: [...new Set(parts.flatMap((part) => part.suggestedKeywords))],
+    missingInformation: [...new Set(parts.flatMap((part) => part.missingInformation))],
+  };
+  try { return normalizeAnalysis("materials", merged, payload); }
+  catch (error) {
+    if (error instanceof CodexApiError) reject("merged_limits", `合并后未通过校验：${error.message}`);
+    throw error;
+  }
 }

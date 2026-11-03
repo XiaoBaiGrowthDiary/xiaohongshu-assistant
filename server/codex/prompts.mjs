@@ -38,6 +38,7 @@ function formatRagItems(ragItems = []) {
 }
 
 function baseContext(payload) {
+  const materialIds = selectedMaterials(payload.sourceMaterials).map(({ id }) => id);
   return [
     "You are generating Chinese Xiaohongshu content for XHS Creator Station, a local desktop content workbench.",
     ...JSON_ONLY_RULES,
@@ -55,7 +56,10 @@ function baseContext(payload) {
     "Ground personal experiences, numbers, product details, and opinions in personal source materials. Never transfer another author's experiences to this creator.",
     "References are for topic relevance, title technique, organization, rhythm and presentation only. Do not copy sentences or import unverifiable personal claims.",
     "Preserve the user's must-preserve facts when supported by source material. Flag conflicts and missing evidence instead of inventing information or outcomes.",
-    "If personal materials exist, every topic and draft must include materialIds pointing only to these supplied IDs and missingInformation as a string array.",
+    `Allowed personal materialIds (copy exactly): ${JSON.stringify(materialIds)}`,
+    "Every topic and draft must include materialIds and missingInformation as string arrays. When personal materials exist, cite at least one relevant ID from the allowed personal materialIds list in EVERY item.",
+    "The same material ID may be reused in different topics or drafts. Within one item's materialIds array, each ID must appear only once.",
+    "Copy complete IDs verbatim. Do not use reference IDs, titles, list positions, shortened IDs, or example placeholders as personal material IDs.",
     "If there are no personal materials, use an empty materialIds array. Never invent source IDs.",
     "",
     "Selected local RAG references:",
@@ -106,9 +110,11 @@ export function buildCodexPrompt(payload) {
     return [
       baseContext(payload),
       "Task: Organize the selected personal text materials. Read their COMPLETE original text, including endings.",
-      "Extract up to 20 useful facts or opinions. For each, quote an exact non-empty contiguous passage from that material, and give a concise insight. Never invent a materialId or source quote.",
+      `There are ${selectedMaterials(payload.sourceMaterials).length} selected source materials. Return EXACTLY ONE item: a combined report for ALL selected materials, NOT one item per material. Source-material count is not report count.`,
+      "Extract up to 20 useful facts or opinions IN TOTAL across all materials. For each, copy its complete allowed material ID and quote an exact non-empty contiguous passage from that material, and give a concise insight. Never invent a materialId or source quote.",
       "Summarize in Chinese without losing exact numbers, limitations, negative experiences, or conflicting facts. Suggest 3 to 6 search keywords; list information worth asking the creator to supplement.",
-      'Return exactly {"items":[{"summary":"string","facts":[{"materialId":"provided-id","quote":"verbatim source passage","insight":"string"}],"suggestedKeywords":["string"],"missingInformation":["string"]}]}',
+      "The combined summary must be at most 4000 characters. Keep at most 6 suggestedKeywords and 30 missingInformation entries in the complete report. Do not drop material endings or change facts to meet these output limits.",
+      "Return exactly this single-report shape: " + JSON.stringify({ items: [{ summary: "combined summary", facts: [{ materialId: selectedMaterials(payload.sourceMaterials)[0]?.id || "", quote: "copy an exact source passage", insight: "string" }], suggestedKeywords: ["string"], missingInformation: [] }] }),
     ].join("\n");
   }
   if (payload.kind === "referenceAnalysis") {
@@ -136,8 +142,8 @@ export function buildCodexPrompt(payload) {
       "Each item must be specific, practical, and grounded in the persona, keyword, and references.",
       "Use these exact English keys on every item: title, angle, audience, reason, hook, materialIds, missingInformation.",
       "Do not translate, rename, omit, or nest these keys.",
-      "Return this exact JSON shape:",
-      '{"items":[{"title":"string","angle":"string","audience":"string","reason":"string","hook":"string","materialIds":["provided-material-id"],"missingInformation":["string"]}]}',
+      "Return this JSON shape. The illustration shows one item's fields; your items array must contain exactly 10 complete candidates:",
+      JSON.stringify({ items: [{ title: "string", angle: "string", audience: "string", reason: "string", hook: "string", materialIds: selectedMaterials(payload.sourceMaterials).slice(0, 1).map(({ id }) => id), missingInformation: [] }] }),
     ].join("\n");
   }
 
@@ -154,8 +160,8 @@ export function buildCodexPrompt(payload) {
       "Do not make medical, financial, safety, or unverifiable transformation claims.",
       "Use these exact English keys on every item: title, body, coverDirection, materialIds, missingInformation.",
       "Do not translate, rename, omit, or nest these keys. coverDirection is required on every item.",
-      "Return this exact JSON shape:",
-      '{"items":[{"title":"string","body":"string","coverDirection":"string","materialIds":["provided-material-id"],"missingInformation":["string"]}]}',
+      "Return this JSON shape. The illustration shows one item's fields; your items array must contain exactly 5 complete drafts:",
+      JSON.stringify({ items: [{ title: "string", body: "string", coverDirection: "string", materialIds: selectedMaterials(payload.sourceMaterials).slice(0, 1).map(({ id }) => id), missingInformation: [] }] }),
     ].join("\n");
   }
 

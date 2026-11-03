@@ -1,5 +1,14 @@
 import { contextError } from "./workflow.mjs";
 
+export function purgeDeletedReference(project, id) {
+  const deletedReferences = (project.deletedReferences || []).filter((item) => item.id !== id);
+  return deletedReferences.length === (project.deletedReferences || []).length ? project : { ...project, deletedReferences };
+}
+
+export function emptyDeletedReferences(project) {
+  return project.deletedReferences?.length ? { ...project, deletedReferences: [] } : project;
+}
+
 export function deleteReference(project, id) {
   const position = project.ragItems.findIndex((item) => item.id === id);
   if (position < 0) return project;

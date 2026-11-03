@@ -80,6 +80,7 @@ async function changeDeletedState(id, deleted) {
     request.onsuccess = () => {
       try {
         if (!request.result) throw new Error("未找到这份草稿，请刷新列表后重试。");
+        if (request.result.purgedAt) throw new Error("这份草稿已永久删除，无法恢复或再次删除。");
         const record = { ...request.result };
         if (deleted) record.deletedAt ||= new Date().toISOString();
         else delete record.deletedAt;
@@ -105,6 +106,41 @@ export function deleteProject(id) {
 export function restoreDeletedProject(id) {
   return changeDeletedState(id, false);
 }
+
+async function purgeProjects(id) {
+  const db = await database();
+  const ids = await new Promise((resolve, reject) => {
+    const transaction = db.transaction(["projects", "index"], "readwrite");
+    const store = transaction.objectStore("projects");
+    const request = id === undefined ? store.getAll() : store.get(id);
+    let result = [], failure;
+    request.onsuccess = () => {
+      try {
+        const records = id === undefined ? request.result.filter((record) => record.deletedAt && !record.purgedAt) : [request.result];
+        if (id !== undefined && (!records[0]?.deletedAt || records[0].purgedAt)) throw new Error("这份草稿不在最近删除中，请刷新列表后重试。");
+        const now = new Date().toISOString();
+        for (const record of records) {
+          // Retain only an ID tombstone to block late saves, including from older tabs.
+          // All content, generated results and local cover Blobs are removed.
+          store.put({ id: record.id, deletedAt: record.deletedAt, purgedAt: now });
+          transaction.objectStore("index").delete(record.id);
+          result.push(record.id);
+        }
+      } catch (error) { failure = error; transaction.abort(); }
+    };
+    transaction.oncomplete = () => resolve(result);
+    transaction.onabort = transaction.onerror = () => reject(failure || new Error("永久删除失败，原内容未被更改，请重试。"));
+  });
+  if (ids.length) coverBackups.clear();
+  if (ids.includes(rememberedProjectId())) rememberProject(null);
+  return ids;
+}
+
+export function purgeDeletedProject(id) {
+  if (typeof id !== "string" || !id) return Promise.reject(new Error("请选择最近删除中的草稿。"));
+  return purgeProjects(id);
+}
+export function emptyDeletedProjects() { return purgeProjects(); }
 
 async function backupCover(image) {
   if (!image?.src || image.storageBlob instanceof Blob) return image;
@@ -132,10 +168,11 @@ export async function saveProject(project) {
   await new Promise((resolve, reject) => {
     const transaction = db.transaction(["projects", "index"], "readwrite");
     const existing = transaction.objectStore("projects").get(record.id);
-    let deleted = false;
+    let deleted = false, purged = false;
     existing.onsuccess = () => {
       if (existing.result?.deletedAt) {
         deleted = true;
+        purged = Boolean(existing.result.purgedAt);
         transaction.abort();
         return;
       }
@@ -143,7 +180,7 @@ export async function saveProject(project) {
       transaction.objectStore("index").put(index);
     };
     transaction.oncomplete = resolve;
-    transaction.onabort = transaction.onerror = () => reject(new Error(deleted ? "这份草稿已删除，请先从「最近删除」恢复后再保存。" : "保存失败：浏览器存储空间不足或不可用。当前内容仍保留在页面，请先复制或导出。"));
+    transaction.onabort = transaction.onerror = () => reject(new Error(purged ? "这份草稿已永久删除，无法再次保存。请新建草稿。" : deleted ? "这份草稿已删除，请先从「最近删除」恢复后再保存。" : "保存失败：浏览器存储空间不足或不可用。当前内容仍保留在页面，请先复制或导出。"));
   });
   rememberProject(project.id);
   return { index, warning };

@@ -7,3 +7,6 @@ test-results/
 
 .DS_Store
 *.log
+
+# Personal creation continuity belongs to this machine, not the source repository.
+CREATION_STATE.local.md

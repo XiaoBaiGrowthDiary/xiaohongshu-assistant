@@ -45,6 +45,7 @@ function storageFixture(t) {
               objectStore(store) {
                 return {
                   put(record) { pending.push(() => stores.get(store).set(record.id, structuredClone(record))); },
+                  delete(key) { pending.push(() => stores.get(store).delete(key)); },
                   get(key) { return readRequest(() => stores.get(store).get(key)); },
                   getAll() { return readRequest(() => [...stores.get(store).values()]); },
                 };
@@ -66,7 +67,7 @@ function storageFixture(t) {
       else delete globalThis[key];
     }
   });
-  return { abortNext() { abortNextWrite = true; } };
+  return { abortNext() { abortNextWrite = true; }, records(store) { return structuredClone([...databases.values()][0].get(store)); } };
 }
 
 const project = {
@@ -192,4 +193,39 @@ test("deleted reference text is saved with its project for restoration after rel
   assert.deepEqual(restored.ragItems, []);
   assert.deepEqual(restored.selectedSearchIds, []);
   assert.deepEqual(restored.deletedReferences, deletedReferences);
+});
+
+test("permanent deletion removes content and cover Blobs while preventing stale tabs from resurrecting the draft", async (t) => {
+  const fixture = storageFixture(t);
+  const store = await import(`./workspaceStore.js?purge=${Date.now()}`);
+  await store.saveProject({ ...project, coverImage: { src: "blob:fixture", storageBlob: new Blob(["cover"]) } });
+  await assert.rejects(store.purgeDeletedProject(project.id), /不在最近删除/);
+  await store.deleteProject(project.id);
+  assert.deepEqual(await store.purgeDeletedProject(project.id), [project.id]);
+  const raw = fixture.records("projects").get(project.id);
+  assert.deepEqual(Object.keys(raw).sort(), ["deletedAt", "id", "purgedAt"]);
+  assert.equal(fixture.records("index").has(project.id), false);
+  const reload = await import(`./workspaceStore.js?purged-reload=${Date.now()}`);
+  assert.deepEqual(await reload.listDeletedProjects(), []);
+  assert.equal(await reload.loadProject(project.id), undefined);
+  await assert.rejects(reload.restoreDeletedProject(project.id), /永久删除/);
+  await assert.rejects(reload.saveProject(project), /永久删除/);
+  assert.deepEqual(await reload.listProjects(), []);
+});
+
+test("emptying trash is atomic and preserves active drafts and their selection", async (t) => {
+  const fixture = storageFixture(t);
+  const store = await import(`./workspaceStore.js?empty-trash=${Date.now()}`);
+  for (const id of ["trash-1", "trash-2", "keep"]) await store.saveProject({ ...project, id });
+  await store.deleteProject("trash-1"); await store.deleteProject("trash-2");
+  fixture.abortNext();
+  await assert.rejects(store.emptyDeletedProjects(), /永久删除失败/);
+  assert.equal((await store.listDeletedProjects()).length, 2);
+  assert.equal(fixture.records("projects").get("trash-1").drafts[0].body, project.drafts[0].body);
+  assert.equal((await store.emptyDeletedProjects()).length, 2);
+  assert.deepEqual((await store.listProjects()).map((item) => item.id), ["keep"]);
+  assert.equal(store.rememberedProjectId(), "keep");
+  assert.equal((await store.loadProject("keep")).sourceMaterials[0].content, project.sourceMaterials[0].content);
+  assert.deepEqual(await store.emptyDeletedProjects(), []);
+  await assert.rejects(store.purgeDeletedProject(), /请选择/);
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accountId, accountInput, accountInputProblem, accountProfileProblem, accountSourceKey, accountWritingContext, confirmAccountCandidate, mergeAccountPosts, refreshAccountProfile } from "./account.mjs";
+import { accountCandidateCurrent, accountId, accountInput, accountInputProblem, accountProfileProblem, accountSourceKey, accountWritingContext, confirmAccountCandidate, editAccountVersion, mergeAccountPosts, refreshAccountProfile } from "./account.mjs";
 import { workflowKey } from "./workflow.mjs";
 import { projectSnapshot as snapshot } from "./project.mjs";
 import { buildCodexPrompt, buildDecisionPrompt } from "../server/codex/prompts.mjs";
@@ -61,6 +61,61 @@ test("confirmation creates immutable versions, preserving user facts and old dra
 test("edits to samples, feedback or goals invalidate unconfirmed analyses", () => {
   const current = record(); current.candidate = { sourceKey: accountSourceKey(current), analysis };
   for (const updated of [{ ...current, goal: "新目标" }, { ...current, samples: [{ ...current.samples[0], feedback: "这一篇很喜欢" }] }, { ...current, samples: [{ ...current.samples[0], body: "新正文" }] }]) assert.throws(() => confirmAccountCandidate(updated), /重新分析/);
+});
+
+test("manual editing copies a formal version without rereading samples and only activates on confirmation", () => {
+  const first = record(); first.candidate = { sourceKey: accountSourceKey(first), analysis };
+  const formal = confirmAccountCandidate(first);
+  const snapshot = accountWritingContext(formal.versions[0]);
+  const editing = editAccountVersion({ ...formal, samples: [] });
+  editing.candidate.analysis.positioning = "制造业计划实习与成长";
+  editing.candidate.analysis.pillars.push("岗位探索");
+  editing.candidate.goal = "记录新的岗位认识";
+  editing.candidate.facts = "不使用业务数据";
+  assert.equal(formal.candidate, null);
+  assert.equal(formal.versions.length, 1);
+  assert.deepEqual(formal.versions[0].analysis.pillars, ["实习经历"]);
+  const saved = confirmAccountCandidate(editing);
+  assert.equal(saved.versions.length, 2);
+  assert.equal(saved.versions[1].origin, "manual");
+  assert.equal(saved.versions[1].basedOnVersionId, formal.versions[0].versionId);
+  assert.deepEqual(saved.versions[1].sampleIds, [noteId]);
+  assert.deepEqual(saved.versions[1].analysis.evidence, formal.versions[0].analysis.evidence);
+  assert.equal(saved.goal, "记录新的岗位认识");
+  assert.equal(saved.facts, "不使用业务数据");
+  assert.equal(snapshot.analysis.positioning, "供应链实习经验分享");
+});
+
+test("restoring history stages the complete old profile and appends a new version without overwriting history", () => {
+  const first = record(); first.candidate = { sourceKey: accountSourceKey(first), analysis };
+  const v1 = confirmAccountCandidate(first);
+  const edit = editAccountVersion(v1); edit.candidate.goal = "第二阶段"; edit.candidate.analysis.positioning = "制造业计划";
+  const v2 = confirmAccountCandidate(edit);
+  const restoring = editAccountVersion(v2, v1.versions[0].versionId);
+  assert.equal(restoring.goal, "第二阶段");
+  assert.equal(restoring.candidate.goal, v1.goal);
+  assert.equal(restoring.candidate.origin, "history");
+  assert.equal(restoring.versions.at(-1).analysis.positioning, "制造业计划");
+  const cancelled = { ...restoring, candidate: null };
+  assert.deepEqual(cancelled, v2);
+  const restored = confirmAccountCandidate(restoring);
+  assert.equal(restored.versions.length, 3);
+  assert.equal(restored.versions[2].goal, v1.goal);
+  assert.deepEqual(restored.versions[2].analysis, v1.versions[0].analysis);
+  assert.deepEqual(restored.versions.slice(0, 2), v2.versions);
+});
+
+test("manual edits still reject invalid portraits, oversized facts and foreign or missing version origins", () => {
+  const first = record(); first.candidate = { sourceKey: accountSourceKey(first), analysis };
+  const editing = editAccountVersion(confirmAccountCandidate(first));
+  assert.equal(accountCandidateCurrent(editing), true);
+  assert.throws(() => confirmAccountCandidate({ ...editing, candidate: { ...editing.candidate, facts: "字".repeat(2001) } }), /2000/);
+  assert.throws(() => confirmAccountCandidate({ ...editing, candidate: { ...editing.candidate, analysis: { ...analysis, pillars: Array(9).fill("方向") } } }), /最多 8 条/);
+  for (const changed of [{ ...editing, profile: { ...editing.profile, userId: noteId } }, { ...editing, versions: [] }]) {
+    assert.equal(accountCandidateCurrent(changed), false);
+    assert.throws(() => confirmAccountCandidate(changed), /原档案版本不可用/);
+  }
+  assert.throws(() => editAccountVersion(editing, "missing"), /未找到/);
 });
 
 test("synchronization preserves originals, explicit exclusions and facts while including recent and high engagement works", () => {

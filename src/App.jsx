@@ -1184,11 +1184,16 @@ export function App() {
     catch (error) { setCustomError(error.message); }
   };
 
-  const changeReference = async (id, recover = false) => {
+  const purgeDraftProjects = async (id) => {
+    try { const count = await workspace.purge(id); setSuccess(`已永久删除 ${count} 份草稿，其他草稿和账号档案保留。`); }
+    catch (error) { setCustomError(error.message); }
+  };
+
+  const changeReference = async (id, action = "delete") => {
     try {
-      const result = await workspace.changeReference(id, recover);
+      const result = await workspace.changeReference(id, action);
       if (result?.warning) setCustomError(result.warning);
-      else setSuccess(recover ? "参考已恢复并保存，可重新分析写法。" : "参考已删除并保存，已同步取消搜索勾选；可从已删除参考中恢复。");
+      else setSuccess({ restore: "参考已恢复并保存，可重新分析写法。", delete: "参考已删除并保存，已同步取消搜索勾选；可从已删除参考中恢复。", purge: "已永久删除这条参考备份并保存，正在使用的参考保留。", empty: "本篇已删除参考已清空并保存，正在使用的参考保留。" }[action]);
     } catch (error) { setCustomError(error.message); }
   };
 
@@ -1258,7 +1263,7 @@ export function App() {
           ))}
         </section>
 
-        <ProjectLibrary projects={workspace.projects} deletedProjects={workspace.deletedProjects} currentId={workspace.project.id} lastDeleted={workspace.lastDeleted} busy={isBusy} canSave={workspace.ready && !workspace.switching} onNew={() => newProject()} onSave={saveDraft} onOpen={switchProject} onDelete={deleteDraftProject} onRestore={restoreDraftProject} />
+        <ProjectLibrary projects={workspace.projects} deletedProjects={workspace.deletedProjects} currentId={workspace.project.id} lastDeleted={workspace.lastDeleted} busy={isBusy || workspace.switching} canSave={workspace.ready && !workspace.switching} onNew={() => newProject()} onSave={saveDraft} onOpen={switchProject} onDelete={deleteDraftProject} onRestore={restoreDraftProject} onPurge={purgeDraftProjects} onEmptyDeleted={() => purgeDraftProjects()} />
 
         <button className="settings-button" type="button" disabled={!workspace.ready || workspace.switching} onClick={saveDraft}>
           <SoftIcon tone="lavender">收</SoftIcon>
@@ -1415,7 +1420,7 @@ export function App() {
               meta="学习写法，事实以你的素材为依据"
               action={<button className="soft-button mint" disabled={isBusy} type="button" onClick={addToRag}>加入并读取正文</button>}
             />
-            <ReferenceLibrary key={workspace.project.id} items={ragItems} deletedItems={deletedReferences} onChange={setRagItems} onDelete={(id) => changeReference(id)} onRestore={(id) => changeReference(id, true)} onRead={readReferences} readProgress={readProgress} busy={isBusy} analysis={referenceAnalysis} analysisCurrent={referenceAnalysisCurrent} onAnalyze={analyzeReferences} onMessage={(message, error) => error ? setCustomError(message) : setSuccess(message)} />
+            <ReferenceLibrary key={workspace.project.id} items={ragItems} deletedItems={deletedReferences} onChange={setRagItems} onDelete={(id) => changeReference(id)} onRestore={(id) => changeReference(id, "restore")} onPurge={(id) => changeReference(id, "purge")} onEmptyDeleted={() => changeReference(undefined, "empty")} onRead={readReferences} readProgress={readProgress} busy={isBusy || workspace.switching} analysis={referenceAnalysis} analysisCurrent={referenceAnalysisCurrent} onAnalyze={analyzeReferences} onMessage={(message, error) => error ? setCustomError(message) : setSuccess(message)} />
           </article>
         </section>
 

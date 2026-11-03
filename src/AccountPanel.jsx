@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { accountId, accountInput, accountInputProblem, accountSamples, accountSourceKey, confirmAccountCandidate, mergeAccountPosts, refreshAccountProfile } from "../shared/account.mjs";
+import { accountId, accountInput, accountInputProblem, accountSamples, accountSourceKey, confirmAccountCandidate, editAccountVersion, isManualAccountCandidate, mergeAccountPosts, refreshAccountProfile } from "../shared/account.mjs";
 import { AccountReview } from "./AccountReview.jsx";
 import { AccountAvatar } from "./AccountAvatar.jsx";
 import { loadAccount, saveAccount } from "./accountStore.js";
 import { requestAccountNote, requestAccountPosts, requestAccountProfile } from "./codexClient.js";
+import { useConfirmation } from "./useConfirmation.jsx";
 
 const STOP_CODES = new Set(["XHS_AUTH_REQUIRED", "XHS_VERIFY_REQUIRED", "XHS_RATE_OR_IP_BLOCKED", "XHS_RUNTIME_ERROR", "XHS_CLI_UNAVAILABLE", "XHS_CACHE_ENCODING_ERROR", "XHS_TEXT_ENCODING_ERROR", "XHS_SERVICE_OUTDATED", "XHS_ACCOUNT_MISMATCH"]);
 
@@ -16,6 +17,7 @@ export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, o
   const [saveStatus, setSaveStatus] = useState("");
   const [operationError, setOperationError] = useState("");
   const [analysisStartedAt, setAnalysisStartedAt] = useState(0);
+  const [confirmAction, confirmation] = useConfirmation();
   const reviewRef = useRef(null);
   const ref = useRef(null), queue = useRef(Promise.resolve()), timer = useRef(null), locked = useRef(false);
   const callbacks = useRef({ onVersion, onProfile, onReady, onMessage });
@@ -100,7 +102,9 @@ export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, o
     requestAnimationFrame(() => { reviewRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }); reviewRef.current?.querySelector("h3")?.focus({ preventScroll: true }); });
     onMessage("账号分析已保存为待确认版本。检查依据并编辑后，点击「确认并保存正式档案」。");
   };
+  const mayReplaceCandidate = async () => !ref.current?.candidate || await confirmAction("这会替换尚未确认的档案修改。当前正式档案和历史版本会保留，是否继续？");
   const sync = (withAnalysis, older = false) => run(async () => {
+    if (withAnalysis && !await mayReplaceCandidate()) return;
     if (withAnalysis && !requireAnalysisModel()) return;
     let current = ref.current;
     if (!current) throw new Error("请先读取并确认账号。");
@@ -116,22 +120,27 @@ export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, o
   const selected = record ? accountSamples(record) : [];
   const latest = record?.versions?.at(-1);
   const candidate = record?.candidate;
+  const manual = isManualAccountCandidate(candidate);
   const disabled = busy || !ready;
   const requireAnalysisModel = () => { if (checkModel()) return true; setOperationError("账号分析尚未开始，请先检查右侧文案模型配置，再点击「读取所选并分析」。"); return false; };
   const confirm = () => run(async () => { const next = confirmAccountCandidate(ref.current); await commit(next, true); onMessage(`正式账号档案 v${next.versions.length} 已保存。新草稿会默认使用，已有草稿可主动更新版本。`); });
+  const openVersion = (versionId) => run(async () => { if (!await mayReplaceCandidate()) return; await commit(editAccountVersion(ref.current, versionId)); onMessage("已打开档案副本，修改并确认后才会生效；没有调用模型。"); });
+  const discard = () => run(async () => { if (!await confirmAction("放弃尚未确认的档案修改？已保存的正式档案、历史版本和上方目标与事实输入会保留。")) return; await commit({ ...ref.current, candidate: null }); onMessage("本次修改已放弃，正式档案继续保留。"); });
   return <section id="step-account" className="account-panel clay-panel mint-glow">
+    {confirmation}
     <div className="materials-heading"><div><span className="eyebrow">我的账号</span><h2>让创作延续你的账号特点</h2><p>自动读取历史文字、分析并由你确认。正式档案可在后续草稿中复用。</p></div><span className="account-save-status" role="status">{saveStatus || "正在恢复账号档案…"}</span></div>
     <label className="field"><span>小红书账号主页链接</span><input value={url} disabled={disabled} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.xiaohongshu.com/user/profile/…" /></label>
     <button type="button" className="soft-button mint" disabled={disabled} onClick={() => run(async () => { const userId = accountId(url); setProgress("正在读取账号资料…"); const result = await requestAccountProfile({ userId }); setPreview(result.profile); })}>读取账号资料</button>
     {preview ? <div className="analysis-box"><div className="account-preview-identity"><AccountAvatar profile={preview} /><strong>{preview.nickname || "未返回昵称"}</strong></div><p>{preview.bio || "暂无简介"}</p><p>粉丝：{preview.followers ?? "未获取"} · 账号编号：{preview.userId}</p><button type="button" className="soft-button mint" disabled={disabled} onClick={() => run(async () => { const stored = preview.userId === ref.current?.profile.userId ? ref.current : await loadAccount(preview.userId); await commit(refreshAccountProfile(stored || { goal: "", facts: "", samples: [], versions: [], candidate: null }, preview), true); setPreview(null); onMessage("账号已确认，可建立档案或同步作品。切换账号后，原账号档案仍保留在此浏览器。"); })}>确认使用这个账号</button><button type="button" className="text-button" disabled={disabled} onClick={() => setPreview(null)}>取消</button></div> : null}
     {record ? <>
       <p className="help-text">当前账号：{record.profile.nickname || record.profile.userId} · 粉丝 {record.profile.followers ?? "未获取"} · {record.syncedAt ? `作品同步于 ${new Date(record.syncedAt).toLocaleString("zh-CN")}` : "尚未同步作品"}</p>
-      <label className="field"><span>接下来的运营目标</span><textarea value={record.goal || ""} maxLength={2000} disabled={disabled} onChange={(event) => edit((current) => ({ ...current, goal: event.target.value }))} placeholder="例如：继续分享供应链求职经历，帮助应届生，逐步拓展到入职后的真实成长。" /></label>
-      <label className="field"><span>你确认的身份、事实和长期要求</span><textarea value={record.facts || ""} maxLength={2000} disabled={disabled} onChange={(event) => edit((current) => ({ ...current, facts: event.target.value }))} placeholder="哪些身份和经历可以使用，哪些说法不能出现。同步不会修改这些内容。" /></label>
-      <div className="reference-toolbar"><button type="button" className="soft-button mint" disabled={disabled} onClick={() => sync(true)}>{latest ? "同步并生成更新建议" : "一键读取并分析"}</button><button type="button" className="soft-button" disabled={disabled} onClick={() => sync(false)}>同步作品列表</button><button type="button" className="soft-button yellow" disabled={disabled || !selected.length} onClick={() => run(async () => { if (requireAnalysisModel()) await analyze(await readSelected(ref.current)); })}>读取所选并分析</button></div>
+      <label className="field"><span>接下来的运营目标</span><textarea value={record.goal || ""} maxLength={2000} disabled={disabled || manual} onChange={(event) => edit((current) => ({ ...current, goal: event.target.value }))} placeholder="例如：继续分享供应链求职经历，帮助应届生，逐步拓展到入职后的真实成长。" /></label>
+      <label className="field"><span>你确认的身份、事实和长期要求</span><textarea value={record.facts || ""} maxLength={2000} disabled={disabled || manual} onChange={(event) => edit((current) => ({ ...current, facts: event.target.value }))} placeholder="哪些身份和经历可以使用，哪些说法不能出现。同步不会修改这些内容。" /></label>
+      {manual ? <p className="help-text">正在编辑档案副本，目标与确认事实请在下方「账号档案审核」中修改；确认后同步到这里。</p> : null}
+      <div className="reference-toolbar"><button type="button" className="soft-button mint" disabled={disabled} onClick={() => sync(true)}>{latest ? "同步并生成更新建议" : "一键读取并分析"}</button><button type="button" className="soft-button" disabled={disabled} onClick={() => sync(false)}>同步作品列表</button><button type="button" className="soft-button yellow" disabled={disabled || !selected.length} onClick={() => run(async () => { if (await mayReplaceCandidate() && requireAnalysisModel()) await analyze(await readSelected(ref.current)); })}>读取所选并分析</button></div>
       <p className="help-text">每页最多 30 条，自动兼顾近期、相对高互动与普通作品；默认选约 10 篇，可选 1–12 篇。只分析文字正文，缺失指标保持未知，样本表现不能证明写法导致成功。</p>
       <button type="button" className="text-button" onClick={() => reviewRef.current?.scrollIntoView({ block: "start", behavior: "smooth" })}>查看档案审核</button>
-      <div ref={reviewRef}><AccountReview record={record} ready={ready} progress={progress} analysisStartedAt={analysisStartedAt} error={operationError} disabled={disabled} onEdit={edit} onConfirm={confirm} onRetry={() => run(async () => { if (requireAnalysisModel()) await analyze(ref.current); })} /></div>
+      <div ref={reviewRef}><AccountReview record={record} ready={ready} progress={progress} analysisStartedAt={analysisStartedAt} error={operationError} disabled={disabled} onEdit={edit} onConfirm={confirm} onEditVersion={openVersion} onDiscard={discard} onRetry={() => run(async () => { if (await mayReplaceCandidate() && requireAnalysisModel()) await analyze(ref.current); })} /></div>
       <details className="account-samples" open={!candidate && !latest}><summary>历史作品与分析样本（已选 {selected.length} / {record.samples.length}）</summary>
         {record.samples.map((note) => <article className="material-item" key={note.noteId}>
           <label className="account-sample-check"><input type="checkbox" checked={Boolean(note.enabled)} disabled={disabled} onChange={(event) => { const checked = event.target.checked; if (checked && selected.length >= 12) { onMessage("最多勾选 12 篇账号样本。", true); return; } edit((current) => ({ ...current, samples: current.samples.map((entry) => entry.noteId === note.noteId ? { ...entry, enabled: checked, selection: checked ? "include" : "exclude" } : entry) })); }} /><strong>{note.title || "未返回标题"}</strong></label>

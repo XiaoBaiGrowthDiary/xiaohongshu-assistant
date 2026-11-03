@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
-import { accountSourceKey } from "../shared/account.mjs";
+import { accountSourceKey, confirmAccountCandidate, editAccountVersion } from "../shared/account.mjs";
 
 let server, Component, Avatar;
 before(async () => {
@@ -80,6 +80,20 @@ test("cached complete text can be analyzed again after restart, while unread sam
   assert.match(render(complete, { onRetry() {} }), /分析已读正文（无需重新读取）/);
   complete.samples[0].body = "";
   assert.doesNotMatch(render(complete, { error: "正文缺失", onRetry() {} }), /分析已读正文（无需重新读取）/);
+});
+
+test("formal profiles expose manual editing and historical restore while staged edits retain cancel and provenance", () => {
+  const first = record(); first.candidate = { analysis, sourceKey: accountSourceKey(first) };
+  const v1 = confirmAccountCandidate(first);
+  assert.match(render(v1), /编辑当前档案/);
+  const editing = editAccountVersion(v1);
+  assert.match(render(editing), /有待确认修改/);
+  assert.match(render(editing), /放弃本次修改/);
+  assert.match(render(editing), /不调用模型/);
+  assert.match(render(editing), /本次档案的运营目标/);
+  assert.match(render(editing), /原版本的分析依据/);
+  const v2 = confirmAccountCandidate(editing);
+  assert.match(render(v2), /从 v1 恢复为待确认档案/);
 });
 
 test("connected avatars use platform metadata rather than the former static creator image", () => {

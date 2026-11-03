@@ -19,10 +19,8 @@ export function accountInput(record) {
   return { profile: { userId, nickname, bio, redId, followers, source, fetchedAt }, goal: record.goal || "", facts: record.facts || "", samples: accountSamples(record).map(({ noteId, title, body, metrics, publishedAt, feedback }) => ({ noteId, title, body, metrics, publishedAt, feedback })), previous: record.versions?.at(-1)?.analysis || null };
 }
 export function accountInputProblem(input) {
-  if (!input || !ID.test(input.profile?.userId || "")) return "请先读取并确认账号。";
-  for (const [field, max] of [["nickname", 300], ["bio", 6000]]) if (typeof input.profile[field] !== "string" || input.profile[field].length > max) return "账号名称或简介格式无效或过长。";
-  if (input.previous && portraitProblem(input.previous)) return "上一版账号档案格式无效。";
-  for (const field of ["goal", "facts"]) if (typeof input[field] !== "string" || input[field].length > ACCOUNT_LIMITS[field]) return `账号目标和确认事实分别最多 ${ACCOUNT_LIMITS[field]} 字符。`;
+  const contextProblem = accountContextProblem(input);
+  if (contextProblem) return contextProblem;
   if (!Array.isArray(input.samples) || !input.samples.length || input.samples.length > ACCOUNT_LIMITS.samples) return "请选择 1 到 12 篇账号样本。";
   const ids = new Set(); let total = 0;
   for (const note of input.samples) {
@@ -37,6 +35,13 @@ export function accountInputProblem(input) {
   }
   return total > ACCOUNT_LIMITS.total ? "账号样本文字合计最多 40000 字符，请减少勾选或精简正文；原文会保留。" : "";
 }
+function accountContextProblem(input) {
+  if (!input || !ID.test(input.profile?.userId || "")) return "请先读取并确认账号。";
+  for (const [field, max] of [["nickname", 300], ["bio", 6000]]) if (typeof input.profile[field] !== "string" || input.profile[field].length > max) return "账号名称或简介格式无效或过长。";
+  if (input.previous && portraitProblem(input.previous)) return "上一版账号档案格式无效。";
+  for (const field of ["goal", "facts"]) if (typeof input[field] !== "string" || input[field].length > ACCOUNT_LIMITS[field]) return `账号目标和确认事实分别最多 ${ACCOUNT_LIMITS[field]} 字符。`;
+  return "";
+}
 export function portraitProblem(analysis) {
   if (!analysis || typeof analysis !== "object" || Array.isArray(analysis)) return "账号分析格式无效。";
   for (const [key, max] of [["summary", 3000], ["positioning", 1000], ["audience", 1000]]) if (typeof analysis[key] !== "string" || !analysis[key].trim() || analysis[key].length > max) return `账号分析 ${key} 为空或超出长度限制。`;
@@ -50,6 +55,22 @@ export function accountProfileProblem(profile) {
   return portraitProblem(profile.analysis);
 }
 export function accountSourceKey(record) { const { previous, ...input } = accountInput(record); return fingerprint(input); }
+
+export function isManualAccountCandidate(candidate) { return ["manual", "history"].includes(candidate?.origin); }
+export function accountCandidateCurrent(record) {
+  const candidate = record?.candidate;
+  if (!candidate) return false;
+  if (!isManualAccountCandidate(candidate)) return candidate.sourceKey === accountSourceKey(record);
+  return candidate.userId === record.profile?.userId && Boolean(record.versions?.some((version) => version.versionId === candidate.basedOnVersionId && version.userId === candidate.userId));
+}
+
+export function editAccountVersion(record, versionId = record?.versions?.at(-1)?.versionId, now = new Date().toISOString()) {
+  const version = record?.versions?.find((entry) => entry.versionId === versionId && entry.userId === record.profile?.userId);
+  if (!version) throw new Error("未找到此账号的正式档案版本，请刷新后重试。");
+  const history = versionId !== record.versions.at(-1).versionId;
+  const candidate = { origin: history ? "history" : "manual", userId: version.userId, basedOnVersionId: version.versionId, basedOnNumber: version.number, goal: history ? version.goal : record.goal, facts: history ? version.facts : record.facts, analysis: structuredClone(version.analysis), sampleIds: [...(version.sampleIds || [])], sourceKey: version.sourceKey, createdAt: now };
+  return { ...record, candidate };
+}
 
 export function refreshAccountProfile(record, profile) {
   const next = { ...record, profile };
@@ -78,15 +99,18 @@ export function mergeAccountPosts(record, incoming, older = false) {
 }
 
 export function confirmAccountCandidate(record, now = new Date().toISOString()) {
-  if (!record.candidate || record.candidate.sourceKey !== accountSourceKey(record)) throw new Error("样本、目标或反馈已变化，请重新分析后再确认。");
-  const problem = accountInputProblem(accountInput(record));
+  if (!accountCandidateCurrent(record)) throw new Error("样本、目标或反馈已变化，或原档案版本不可用，请重新分析或重新打开正式档案编辑后再确认。");
+  const candidate = record.candidate, manual = isManualAccountCandidate(candidate);
+  const goal = manual ? candidate.goal : record.goal, facts = manual ? candidate.facts : record.facts;
+  const input = { ...accountInput(record), goal, facts };
+  const problem = manual ? accountContextProblem(input) : accountInputProblem(input);
   if (problem) throw new Error(problem);
   const analysis = { ...record.candidate.analysis };
   for (const key of ["pillars", "voice", "boundaries", "hypotheses"]) if (Array.isArray(analysis[key])) analysis[key] = analysis[key].map((line) => line.trim()).filter(Boolean);
   const portraitError = portraitProblem(analysis);
   if (portraitError) throw new Error(portraitError);
-  const version = { versionId: `account-${record.profile.userId}-${(record.versions?.length || 0) + 1}`, number: (record.versions?.length || 0) + 1, userId: record.profile.userId, nickname: record.profile.nickname, goal: record.goal, facts: record.facts, analysis, createdAt: now, sourceKey: record.candidate.sourceKey, sampleIds: accountSamples(record).map((note) => note.noteId) };
-  return { ...record, versions: [...(record.versions || []), version], candidate: null };
+  const version = { versionId: `account-${record.profile.userId}-${(record.versions?.length || 0) + 1}`, number: (record.versions?.length || 0) + 1, userId: record.profile.userId, nickname: record.profile.nickname, goal, facts, analysis, createdAt: now, sourceKey: candidate.sourceKey, sampleIds: manual ? [...candidate.sampleIds] : accountSamples(record).map((note) => note.noteId), origin: candidate.origin || "analysis", ...(manual ? { basedOnVersionId: candidate.basedOnVersionId } : {}) };
+  return { ...record, goal, facts, versions: [...(record.versions || []), version], candidate: null };
 }
 
 export function accountWritingContext(version, mode = "continue") {

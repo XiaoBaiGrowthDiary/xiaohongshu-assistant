@@ -1,9 +1,14 @@
 import { useState } from "react";
+import { useConfirmation } from "./useConfirmation.jsx";
 
-export function ProjectLibrary({ projects, deletedProjects, currentId, lastDeleted, busy, canSave, onNew, onSave, onOpen, onDelete, onRestore }) {
+export function ProjectLibrary({ projects, deletedProjects, currentId, lastDeleted, busy, canSave, onNew, onSave, onOpen, onDelete, onRestore, onPurge, onEmptyDeleted }) {
   const [showDeleted, setShowDeleted] = useState(false);
+  const [confirm, confirmation] = useConfirmation();
+  const purge = async (project) => { if (await confirm(`永久删除草稿「${project.title}」？该草稿的素材、生成结果和本地封面备份将被清除，无法恢复。其他草稿和账号档案会保留。`)) onPurge(project.id); };
+  const empty = async () => { if (await confirm(`清空最近删除中的 ${deletedProjects.length} 份草稿？这些草稿的素材、生成结果和本地封面备份将被清除，无法恢复。正在使用的草稿和账号档案会保留。`)) onEmptyDeleted(); };
   return (
     <section className="project-list" aria-label="草稿项目管理">
+      {confirmation}
       <header>
         <h3>草稿项目</h3>
         <div className="project-actions">
@@ -23,7 +28,7 @@ export function ProjectLibrary({ projects, deletedProjects, currentId, lastDelet
       {lastDeleted ? <div className="delete-feedback" role="status"><span>已删除「{lastDeleted.title}」</span><button className="restore-button" type="button" disabled={busy} onClick={() => onRestore(lastDeleted.id)}>撤销删除</button></div> : null}
       {deletedProjects.length ? <>
         <button className="text-button deleted-toggle" type="button" aria-expanded={showDeleted} aria-controls="deleted-project-list" onClick={() => setShowDeleted((current) => !current)}>最近删除（{deletedProjects.length}）</button>
-        {showDeleted ? <div className="deleted-project-list" id="deleted-project-list">{deletedProjects.map((project) => <div className="deleted-item" key={project.id}><span title={project.title}>{project.title}</span><button className="restore-button" type="button" disabled={busy} onClick={() => onRestore(project.id)} aria-label={`恢复草稿：${project.title}`}>恢复</button></div>)}</div> : null}
+        {showDeleted ? <div className="deleted-project-list" id="deleted-project-list"><button type="button" className="text-button trash-empty" disabled={busy || !canSave} onClick={empty}>清空最近删除</button>{deletedProjects.map((project) => <div className="deleted-item" key={project.id}><span title={project.title}>{project.title}</span><div className="deleted-item-actions"><button className="restore-button" type="button" disabled={busy} onClick={() => onRestore(project.id)} aria-label={`恢复草稿：${project.title}`}>恢复</button><button className="delete-button purge-button" type="button" disabled={busy || !canSave} onClick={() => purge(project)} aria-label={`永久删除草稿：${project.title}`}>永久删除</button></div></div>)}</div> : null}
       </> : null}
     </section>
   );

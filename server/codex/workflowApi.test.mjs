@@ -58,6 +58,38 @@ test("cloud API routes preserve complete materials and validate all text workflo
   assert.ok(prompts.at(-1).includes(text));
 });
 
+test("local and cloud material routes merge valid per-source reports without retrying and reject invalid quotes", async (t) => {
+  const sources = [...base.sourceMaterials, { id: "source-2", title: "补充原文", content: "回程提前确认末班车。" }];
+  let invalid = false;
+  const result = () => ({ items: sources.map((source, index) => ({ summary: source.content, facts: [{ materialId: source.id, quote: invalid && index === 1 ? "不存在的原文" : source.content, insight: "保留真实限制" }], suggestedKeywords: ["周末徒步"], missingInformation: [] })) });
+  const launch = t.mock.method(childProcess, "spawn", (_command, args, options) => {
+    assert.equal(options.shell, false);
+    assert.ok(args.includes("--prompt"));
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
+    queueMicrotask(() => { child.stdout.end(JSON.stringify({ role: "assistant", content: JSON.stringify(result()) }) + "\n"); child.stderr.end(); setImmediate(() => child.emit("close", 0)); });
+    return child;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { launch.mock.restore(); syncBuiltinESMExports(); });
+  const remote = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(result()) } }] }), { status: 200 }));
+  for (const [endpoint, config] of [["/api/local-cli/generate", { cliId: "custom", cliCommand: "offline-fixture" }], ["/api/cloud/generate", { modelName: "offline-fixture", apiKey: "test-only", baseUrl: "http://127.0.0.1:59999/v1" }]]) {
+    invalid = false;
+    const response = await request(endpoint, { ...base, ...config, kind: "materials", sourceMaterials: sources });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(response.body.items.length, 1);
+    assert.deepEqual(response.body.items[0].facts.map((fact) => fact.quote), sources.map((source) => source.content));
+    invalid = true;
+    const rejected = await request(endpoint, { ...base, ...config, kind: "materials", sourceMaterials: sources });
+    assert.equal(rejected.status, 502);
+    assert.match(rejected.body.error, /第 2 份未通过校验/);
+    assert.equal(rejected.body.details.problem, "invalid_report");
+    assert.doesNotMatch(JSON.stringify(rejected.body.details), /不存在的原文/);
+  }
+  assert.equal(launch.mock.calls.length, 2);
+  assert.equal(remote.mock.calls.length, 2);
+});
+
 test("local CLI routes receive the same source context without running installed tools", async (t) => {
   const prompts = [];
   const launch = t.mock.method(childProcess, "spawn", (_command, args, options) => {
@@ -96,6 +128,39 @@ test("invalid source input is rejected before calling either a provider or a loc
     assert.equal(response.status, 400); assert.equal(response.body.code, "BAD_REQUEST");
   }
   assert.equal(remote.mock.calls.length, 0); assert.equal(launch.mock.calls.length, 0);
+});
+
+test("local and cloud citation failures return safe result-level diagnostics without automatic retries", async (t) => {
+  const invalid = { items: Array.from({ length: 10 }, () => ({ ...topic })) };
+  invalid.items[6] = { ...topic, materialIds: ["PRIVATE_REJECTED_ID_sk-example"] };
+  const launch = t.mock.method(childProcess, "spawn", (_command, args, options) => {
+    assert.equal(options.shell, false);
+    assert.ok(args.includes("--prompt"));
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
+    queueMicrotask(() => {
+      child.stdout.end(JSON.stringify({ role: "assistant", content: JSON.stringify(invalid) }) + "\n");
+      child.stderr.end(); setImmediate(() => child.emit("close", 0));
+    });
+    return child;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { launch.mock.restore(); syncBuiltinESMExports(); });
+  const remote = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(invalid) } }] }), { status: 200 }));
+  const cases = [
+    ["/api/local-cli/generate", { cliId: "custom", cliCommand: "offline-fixture" }, "LOCAL_CLI_BAD_JSON"],
+    ["/api/cloud/generate", { modelName: "offline-fixture", apiKey: "PRIVATE_MODEL_KEY", baseUrl: "http://127.0.0.1:59999/v1" }, "API_BAD_JSON"],
+  ];
+  for (const [endpoint, config, code] of cases) {
+    const response = await request(endpoint, { ...base, ...config, kind: "topics" });
+    assert.equal(response.status, 502);
+    assert.equal(response.body.code, code);
+    assert.match(response.body.error, /第 7 个选题/);
+    assert.deepEqual(response.body.details, { kind: "topics", itemIndex: 7, field: "materialIds", problem: "unselected_ids", allowedCount: 1, providedCount: 1, invalidCount: 1 });
+    assert.doesNotMatch(JSON.stringify(response.body), /PRIVATE_REJECTED_ID|PRIVATE_MODEL_KEY|下山台阶湿滑/);
+  }
+  assert.equal(launch.mock.calls.length, 1);
+  assert.equal(remote.mock.calls.length, 1);
 });
 
 test("note detail API validates input, returns full text, and never forwards raw CLI credentials", async (t) => {

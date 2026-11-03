@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deleteReference, restoreReference } from "./references.mjs";
+import { deleteReference, emptyDeletedReferences, purgeDeletedReference, restoreReference } from "./references.mjs";
 import { buildCodexPrompt } from "../server/codex/prompts.mjs";
 
 const reference = { id: "search-1", title: "参考文章", body: "DELETED_REFERENCE_TEXT：保留完整正文", source: "search_result/note-1", tags: ["徒步"] };
@@ -48,4 +48,19 @@ test("restoring references respects the total text budget and keeps archived con
   const full = { ...deleted, ragItems: Array.from({ length: 4 }, (_, index) => ({ id: `large-${index}`, body: "字".repeat(6000) })) };
   assert.throws(() => restoreReference(full, reference.id), /24000/);
   assert.equal(full.deletedReferences.length, 1);
+});
+
+test("permanent reference removal only purges the requested archive and preserves active references and analysis", () => {
+  const archived = { ...deleteReference(project, reference.id), deletedReferences: [{ ...reference, deletedAt: "now" }, { id: "archived-2", body: "另一条备份" }], referenceAnalysis: { summary: "当前有效分析" } };
+  const purged = purgeDeletedReference(archived, reference.id);
+  assert.deepEqual(purged.deletedReferences.map((item) => item.id), ["archived-2"]);
+  assert.equal(purged.ragItems, archived.ragItems);
+  assert.equal(purged.referenceAnalysis, archived.referenceAnalysis);
+  assert.equal(purgeDeletedReference(purged, "missing"), purged);
+  assert.equal(restoreReference(purged, reference.id), purged);
+  const empty = emptyDeletedReferences(purged);
+  assert.deepEqual(empty.deletedReferences, []);
+  assert.equal(empty.ragItems, archived.ragItems);
+  assert.equal(empty.searchResults, archived.searchResults);
+  assert.equal(archived.deletedReferences.length, 2);
 });

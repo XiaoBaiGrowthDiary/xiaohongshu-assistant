@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { deleteProject, listDeletedProjects, listProjects, loadProject, rememberedProjectId, rememberProject, restoreDeletedProject, saveProject } from "./workspaceStore.js";
-import { deleteReference, restoreReference } from "../shared/references.mjs";
+import { deleteProject, emptyDeletedProjects, listDeletedProjects, listProjects, loadProject, purgeDeletedProject, rememberedProjectId, rememberProject, restoreDeletedProject, saveProject } from "./workspaceStore.js";
+import { deleteReference, emptyDeletedReferences, purgeDeletedReference, restoreReference } from "../shared/references.mjs";
 import { hasProjectContentChanges } from "../shared/project.mjs";
 import { STORAGE_KEYS } from "../shared/legacyCompatibility.mjs";
 
@@ -167,10 +167,20 @@ export function useWorkspace(defaults) {
     return index;
   }), [changeWorkspace, saveBeforeLeaving, restore]);
 
-  const changeReference = useCallback((id, recoverDeleted = false) => changeWorkspace(async () => {
+  const purge = useCallback((id) => changeWorkspace(async () => {
+    await saveBeforeLeaving();
+    const ids = id === undefined ? await emptyDeletedProjects() : await purgeDeletedProject(id);
+    setDeletedProjects((current) => current.filter((item) => !ids.includes(item.id)));
+    setLastDeleted((current) => ids.includes(current?.id) ? null : current);
+    return ids.length;
+  }), [changeWorkspace, saveBeforeLeaving]);
+
+  const changeReference = useCallback((id, action = "delete") => changeWorkspace(async () => {
     await queue.current.catch(() => {});
     const current = latest.current;
-    const next = recoverDeleted ? restoreReference(current, id) : deleteReference(current, id);
+    const operations = { delete: deleteReference, restore: restoreReference, purge: purgeDeletedReference, empty: emptyDeletedReferences };
+    if (!operations[action]) throw new Error("未知的参考操作。");
+    const next = operations[action](current, id);
     if (next === current) return;
     const result = await persist(next);
     restore(next);
@@ -178,5 +188,5 @@ export function useWorkspace(defaults) {
     return result;
   }), [changeWorkspace, persist, restore]);
 
-  return { project, projects, deletedProjects, lastDeleted, field, ready, switching, status, save, open, create, remove, recover, changeReference };
+  return { project, projects, deletedProjects, lastDeleted, field, ready, switching, status, save, open, create, remove, recover, purge, changeReference };
 }

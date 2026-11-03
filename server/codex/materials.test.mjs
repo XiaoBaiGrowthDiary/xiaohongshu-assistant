@@ -11,6 +11,66 @@ const context = { persona: "分享真实周末体验", keyword: "周末徒步", 
 const topic = { title: "我的徒步路线", angle: "实际交通与路况", audience: "徒步新手", reason: "有真实经历", hook: "下山比上山更需要注意", materialIds: [material.id], missingInformation: [] };
 const draft = { title: "周末徒步花了多少", body: `${original} #周末徒步[话题]#`, coverDirection: "路线图和鞋的静物", materialIds: [material.id], missingInformation: [] };
 
+const supplement = { id: "source-supplement", title: "补充说明", content: "最后补充：回程需要提前查好末班车。", enabled: true };
+const materialReport = (source) => ({ summary: source.content, facts: [{ materialId: source.id, quote: source.content, insight: "保留原文中的真实限制" }], suggestedKeywords: ["周末徒步"], missingInformation: [] });
+
+test("material prompts distinguish multiple input sources from exactly one combined report", () => {
+  const prompt = buildCodexPrompt({ ...context, kind: "materials", sourceMaterials: [material, supplement] });
+  assert.match(prompt, /2 selected (?:personal )?source materials/);
+  assert.match(prompt, /exactly ONE item.*combined report.*ALL/i);
+  assert.match(prompt, /not one item per material/i);
+  assert.ok(prompt.includes(JSON.stringify(material.id)));
+  assert.doesNotMatch(prompt, /provided-id/);
+});
+
+test("valid per-source material reports merge completely with original IDs, quotes and endings", () => {
+  const payload = { ...context, sourceMaterials: [material, supplement] };
+  const parts = [materialReport(supplement), materialReport(material)];
+  parts[0].missingInformation = ["确认图片是否可公开"];
+  parts[1].missingInformation = ["确认图片是否可公开", "补充路线名称"];
+  const [combined] = normalizeCodexItems("materials", { items: parts }, payload);
+  assert.ok(combined.summary.includes(supplement.content));
+  assert.ok(combined.summary.includes(original));
+  assert.deepEqual(combined.facts.map((fact) => fact.materialId), [supplement.id, material.id]);
+  assert.deepEqual(combined.facts.map((fact) => fact.quote), [supplement.content, original]);
+  assert.deepEqual(combined.suggestedKeywords, ["周末徒步"]);
+  assert.deepEqual(combined.missingInformation, ["确认图片是否可公开", "补充路线名称"]);
+  assert.deepEqual(normalizeCodexItems("materials", { items: [materialReport(material)] }, payload), [materialReport(material)]);
+});
+
+test("material compatibility refuses duplicate, ambiguous, incomplete or fabricated source reports", () => {
+  const payload = { ...context, sourceMaterials: [material, supplement] };
+  const first = materialReport(material), second = materialReport(supplement);
+  for (const items of [
+    [first, first],
+    [first, { ...second, facts: [...second.facts, ...first.facts] }],
+    [first, second, second],
+    [first, { ...second, facts: [{ ...second.facts[0], materialId: "fabricated" }] }],
+    [first, { ...second, facts: [{ ...second.facts[0], quote: "原文不存在的内容" }] }],
+  ]) {
+    assert.throws(() => normalizeCodexItems("materials", { items }, payload), (error) => {
+      assert.equal(error.code, "CODEX_BAD_JSON");
+      assert.match(error.message, /完整原文仍保留/);
+      assert.doesNotMatch(JSON.stringify(error.details), /fabricated|不存在的内容/);
+      return true;
+    });
+  }
+  assert.throws(() => normalizeCodexItems("materials", { items: [] }, payload), /需要 1 份汇总报告/);
+});
+
+test("combined material reports obey all aggregate limits instead of silently trimming", () => {
+  const payload = { ...context, sourceMaterials: [material, supplement] };
+  const first = materialReport(material), second = materialReport(supplement);
+  for (const items of [
+    [{ ...first, summary: "字".repeat(2500) }, { ...second, summary: "字".repeat(2500) }],
+    [{ ...first, facts: Array(11).fill(first.facts[0]) }, { ...second, facts: Array(10).fill(second.facts[0]) }],
+    [{ ...first, suggestedKeywords: ["1", "2", "3", "4"] }, { ...second, suggestedKeywords: ["5", "6", "7"] }],
+    [{ ...first, missingInformation: Array.from({ length: 20 }, (_, i) => `补充${i}`) }, { ...second, missingInformation: Array.from({ length: 20 }, (_, i) => `其他${i}`) }],
+  ]) assert.throws(() => normalizeCodexItems("materials", { items }, payload), (error) => error.details?.problem === "merged_limits");
+  assert.throws(() => normalizeCodexItems("topics", { items: [topic, topic] }, context), /需要 10 条/);
+  assert.throws(() => normalizeCodexItems("drafts", { items: [draft, draft] }, { ...context, selectedTopic: topic }), /需要 5 条/);
+});
+
 test("complete material endings and briefs beyond the old 800-character limit reach every writing stage", () => {
   const tail = "SOURCE_END_交通花费36元";
   const longContext = { ...context, sourceMaterials: [{ ...material, content: "原文".repeat(6000) + tail }], writingBrief: "要求".repeat(500) + "BRIEF_END" };
@@ -61,6 +121,80 @@ test("topic and draft provenance must refer to selected personal material IDs", 
   assert.throws(() => normalizeCodexItems("topics", topics, context), /素材依据/);
   const drafts = { items: Array.from({ length: 5 }, () => ({ ...draft, materialIds: [] })) };
   assert.throws(() => normalizeCodexItems("drafts", drafts, { ...context, selectedTopic: topic }), /素材依据/);
+});
+
+test("writing prompts use selected source IDs in both the allowlist and JSON illustration", () => {
+  const first = { ...material, id: 'material-20261102-"原文🌿' };
+  const second = { ...material, id: "material-20261102-supplement" };
+  const payload = { ...context, sourceMaterials: [{ ...material, id: "excluded", content: "PRIVATE_EXCLUDED_SOURCE", enabled: false }, first, second], ragItems: [{ id: "reference-only", title: "参考", body: "只学习写法" }] };
+  for (const kind of ["topics", "drafts"]) {
+    const prompt = buildCodexPrompt({ ...payload, kind, selectedTopic: topic });
+    const allowlist = prompt.split("\n").find((line) => line.startsWith("Allowed personal materialIds (copy exactly): "));
+    assert.deepEqual(JSON.parse(allowlist.slice(allowlist.indexOf(": ") + 2)), [first.id, second.id]);
+    const illustration = JSON.parse(prompt.split("\n").at(-1));
+    assert.deepEqual(illustration.items[0].materialIds, [first.id]);
+    assert.deepEqual(illustration.items[0].missingInformation, []);
+    assert.doesNotMatch(prompt, /provided-material-id|PRIVATE_EXCLUDED_SOURCE/);
+  }
+});
+
+test("reference-only writing prompts and outputs keep personal material IDs empty", () => {
+  const payload = { ...context, selectedTopic: topic, sourceMaterials: [], ragItems: [{ id: "reference-only", title: "参考", body: "仅参考写法" }] };
+  for (const [kind, candidate, count] of [["topics", topic, 10], ["drafts", draft, 5]]) {
+    const prompt = buildCodexPrompt({ ...payload, kind, selectedTopic: topic });
+    assert.deepEqual(JSON.parse(prompt.split("\n").at(-1)).items[0].materialIds, []);
+    const result = normalizeCodexItems(kind, { items: Array.from({ length: count }, () => ({ ...candidate, materialIds: [] })) }, payload);
+    assert.ok(result.every((item) => item.materialIds.length === 0));
+  }
+});
+
+test("different candidates may reuse a real source ID without receiving invented or additional citations", () => {
+  const second = { ...material, id: "second-source", title: "补充说明" };
+  const payload = { ...context, selectedTopic: topic, sourceMaterials: [material, second] };
+  for (const [kind, candidate, count] of [["topics", topic, 10], ["drafts", draft, 5]]) {
+    const items = Array.from({ length: count }, (_, index) => ({ ...candidate, materialIds: [index % 2 ? second.id : material.id] }));
+    const result = normalizeCodexItems(kind, { items }, payload);
+    assert.deepEqual(result.map((item) => item.materialIds), items.map((item) => item.materialIds));
+  }
+});
+
+for (const [kind, candidate, count, position] of [["topics", topic, 10, 6], ["drafts", draft, 5, 3]]) {
+  test(`${kind} citation errors locate the result without exposing rejected identifiers or source text`, () => {
+    const fixtures = [
+      [undefined, "missing_ids"],
+      [[], "missing_ids"],
+      [[material.id, material.id], "duplicate_ids"],
+      [["disabled-source"], "unselected_ids"],
+      [["reference-only"], "unselected_ids"],
+      [["provided-material-id"], "unselected_ids"],
+      [["PRIVATE_REJECTED_ID_sk-example"], "unselected_ids"],
+      [material.id, "invalid_format"],
+      [[42], "invalid_format"],
+      [Array(13).fill(material.id), "too_many_ids"],
+    ];
+    const payload = { ...context, selectedTopic: topic, sourceMaterials: [material, { ...material, id: "disabled-source", enabled: false }], ragItems: [{ id: "reference-only", body: "参考文字" }] };
+    for (const [materialIds, problem] of fixtures) {
+      const items = Array.from({ length: count }, () => ({ ...candidate }));
+      items[position] = { ...candidate, materialIds };
+      assert.throws(() => normalizeCodexItems(kind, { items }, payload), (error) => {
+        assert.equal(error.code, "CODEX_BAD_JSON");
+        assert.equal(error.status, 502);
+        assert.match(error.message, new RegExp(`第 ${position + 1} 个${kind === "topics" ? "选题" : "文案"}`));
+        assert.deepEqual({ kind: error.details.kind, itemIndex: error.details.itemIndex, field: error.details.field, problem: error.details.problem, allowedCount: error.details.allowedCount }, { kind, itemIndex: position + 1, field: "materialIds", problem, allowedCount: 1 });
+        assert.doesNotMatch(JSON.stringify({ message: error.message, details: error.details }), /PRIVATE_REJECTED_ID|disabled-source|reference-only|provided-material-id|交通花费/);
+        return true;
+      });
+    }
+  });
+}
+
+test("existing source ID field aliases still resolve only to selected materials", () => {
+  for (const field of ["material_ids", "素材编号"]) {
+    const items = Array.from({ length: 10 }, () => ({ ...topic, materialIds: undefined, [field]: [material.id] }));
+    assert.deepEqual(normalizeCodexItems("topics", { items }, context)[0].materialIds, [material.id]);
+    items[0][field] = ["unknown-source"];
+    assert.throws(() => normalizeCodexItems("topics", { items }, context), (error) => error.details?.problem === "unselected_ids");
+  }
 });
 
 test("material summaries require genuine source quotes and reject invented evidence", () => {
