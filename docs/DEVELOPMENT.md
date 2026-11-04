@@ -48,6 +48,8 @@ flowchart TD
 
 ## 3. 本地启动与路径解析
 
+账号历史删除使用 `deleteAccountVersion` 生成新记录，经 `saveAccount` 同一事务保存 primary 与账号编号两份记录后才启用。可选的 `versionHighWater` 保存已使用最大编号；旧库缺失时从现有版本取最大值，首次删除时记录被移除编号，无需升级数据库或重编旧稿快照。新版本号使用高水位与现有版本最大值加一。
+
 在仓库根目录执行，先准备 Node.js / npm；直接用 Vite 命令前运行 `npm install`，启动器会自动补装缺少的依赖。
 
 | 命令 | 用途 |

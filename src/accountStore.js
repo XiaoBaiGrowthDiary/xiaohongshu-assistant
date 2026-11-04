@@ -25,7 +25,7 @@ export async function loadAccount(userId = "primary") {
 export async function saveAccount(record) {
   const db = await database();
   // The account library never stores model configuration or credentials.
-  const fields = ["profile", "goal", "facts", "samples", "candidate", "versions", "nextCursor", "hasMore", "pages", "syncedAt"];
+  const fields = ["profile", "goal", "facts", "samples", "candidate", "versions", "versionHighWater", "nextCursor", "hasMore", "pages", "syncedAt"];
   const snapshot = Object.fromEntries(fields.filter((key) => record[key] !== undefined).map((key) => [key, record[key]]));
   try {
     await new Promise((resolve, reject) => {

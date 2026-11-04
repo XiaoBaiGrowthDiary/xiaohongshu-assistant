@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { accountId, accountInput, accountInputProblem, accountSamples, accountSourceKey, confirmAccountCandidate, editAccountVersion, isManualAccountCandidate, mergeAccountPosts, refreshAccountProfile } from "../shared/account.mjs";
+import { accountId, accountInput, accountInputProblem, accountSamples, accountSourceKey, confirmAccountCandidate, deleteAccountVersion, editAccountVersion, isManualAccountCandidate, mergeAccountPosts, refreshAccountProfile } from "../shared/account.mjs";
 import { AccountReview } from "./AccountReview.jsx";
 import { AccountAvatar } from "./AccountAvatar.jsx";
 import { loadAccount, saveAccount } from "./accountStore.js";
@@ -123,7 +123,8 @@ export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, o
   const manual = isManualAccountCandidate(candidate);
   const disabled = busy || !ready;
   const requireAnalysisModel = () => { if (checkModel()) return true; setOperationError("账号分析尚未开始，请先检查右侧文案模型配置，再点击「读取所选并分析」。"); return false; };
-  const confirm = () => run(async () => { const next = confirmAccountCandidate(ref.current); await commit(next, true); onMessage(`正式账号档案 v${next.versions.length} 已保存。新草稿会默认使用，已有草稿可主动更新版本。`); });
+  const confirm = () => run(async () => { const next = confirmAccountCandidate(ref.current); await commit(next, true); onMessage(`正式账号档案 v${next.versions.at(-1).number} 已保存。新草稿会默认使用，已有草稿可主动更新版本。`); });
+  const deleteVersion = (versionId) => run(async () => { const version = ref.current.versions.find((entry) => entry.versionId === versionId); if (!version) throw new Error("未找到该档案版本。"); if (!await confirmAction(`永久删除档案 v${version.number}？此操作无法恢复。已有草稿的档案快照保留；删除当前版本后使用剩余的最新版本。`)) return; const next = deleteAccountVersion(ref.current, versionId); await commit(next, true); onMessage(`档案 v${version.number} 已删除，当前正式档案为 v${next.versions.at(-1).number}。`); });
   const openVersion = (versionId) => run(async () => { if (!await mayReplaceCandidate()) return; await commit(editAccountVersion(ref.current, versionId)); onMessage("已打开档案副本，修改并确认后才会生效；没有调用模型。"); });
   const discard = () => run(async () => { if (!await confirmAction("放弃尚未确认的档案修改？已保存的正式档案、历史版本和上方目标与事实输入会保留。")) return; await commit({ ...ref.current, candidate: null }); onMessage("本次修改已放弃，正式档案继续保留。"); });
   return <section id="step-account" className="account-panel clay-panel mint-glow">
@@ -140,7 +141,7 @@ export function AccountPanel({ busy, onBusy, onAnalyze, checkModel, onVersion, o
       <div className="reference-toolbar"><button type="button" className="soft-button mint" disabled={disabled} onClick={() => sync(true)}>{latest ? "同步并生成更新建议" : "一键读取并分析"}</button><button type="button" className="soft-button" disabled={disabled} onClick={() => sync(false)}>同步作品列表</button><button type="button" className="soft-button yellow" disabled={disabled || !selected.length} onClick={() => run(async () => { if (await mayReplaceCandidate() && requireAnalysisModel()) await analyze(await readSelected(ref.current)); })}>读取所选并分析</button></div>
       <p className="help-text">每页最多 30 条，自动兼顾近期、相对高互动与普通作品；默认选约 10 篇，可选 1–12 篇。只分析文字正文，缺失指标保持未知，样本表现不能证明写法导致成功。</p>
       <button type="button" className="text-button" onClick={() => reviewRef.current?.scrollIntoView({ block: "start", behavior: "smooth" })}>查看档案审核</button>
-      <div ref={reviewRef}><AccountReview record={record} ready={ready} progress={progress} analysisStartedAt={analysisStartedAt} error={operationError} disabled={disabled} onEdit={edit} onConfirm={confirm} onEditVersion={openVersion} onDiscard={discard} onRetry={() => run(async () => { if (await mayReplaceCandidate() && requireAnalysisModel()) await analyze(ref.current); })} /></div>
+      <div ref={reviewRef}><AccountReview record={record} ready={ready} progress={progress} analysisStartedAt={analysisStartedAt} error={operationError} disabled={disabled} onEdit={edit} onConfirm={confirm} onEditVersion={openVersion} onDeleteVersion={deleteVersion} onDiscard={discard} onRetry={() => run(async () => { if (await mayReplaceCandidate() && requireAnalysisModel()) await analyze(ref.current); })} /></div>
       <details className="account-samples" open={!candidate && !latest}><summary>历史作品与分析样本（已选 {selected.length} / {record.samples.length}）</summary>
         {record.samples.map((note) => <article className="material-item" key={note.noteId}>
           <label className="account-sample-check"><input type="checkbox" checked={Boolean(note.enabled)} disabled={disabled} onChange={(event) => { const checked = event.target.checked; if (checked && selected.length >= 12) { onMessage("最多勾选 12 篇账号样本。", true); return; } edit((current) => ({ ...current, samples: current.samples.map((entry) => entry.noteId === note.noteId ? { ...entry, enabled: checked, selection: checked ? "include" : "exclude" } : entry) })); }} /><strong>{note.title || "未返回标题"}</strong></label>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accountCandidateCurrent, accountId, accountInput, accountInputProblem, accountProfileProblem, accountSourceKey, accountWritingContext, confirmAccountCandidate, editAccountVersion, mergeAccountPosts, refreshAccountProfile } from "./account.mjs";
+import { accountCandidateCurrent, accountId, accountInput, accountInputProblem, accountProfileProblem, accountSourceKey, accountWritingContext, confirmAccountCandidate, deleteAccountVersion, editAccountVersion, mergeAccountPosts, refreshAccountProfile } from "./account.mjs";
 import { workflowKey } from "./workflow.mjs";
 import { projectSnapshot as snapshot } from "./project.mjs";
 import { buildCodexPrompt, buildDecisionPrompt } from "../server/codex/prompts.mjs";
@@ -163,4 +163,36 @@ test("refreshing only an avatar preserves a valid pending analysis, while change
   assert.doesNotThrow(() => confirmAccountCandidate(refreshed));
   const changed = refreshAccountProfile(current, { ...current.profile, nickname: "另一个昵称", fetchedAt: "after" });
   assert.throws(() => confirmAccountCandidate(changed), /重新分析/);
+});
+
+test("deleting versions keeps at least one formal version and protects pending copies", () => {
+  const versions = [1, 2, 3].map(number => ({ number, versionId: `v${number}`, goal: `goal${number}`, facts: `facts${number}` }));
+  const source = { versions, goal: "goal3", facts: "facts3" };
+  const result = deleteAccountVersion(source, "v3");
+  assert.deepEqual(result.versions.map(v => v.number), [1, 2]);
+  assert.equal(result.versionHighWater, 3);
+  assert.equal(result.goal, "goal2");
+  assert.equal(source.versions.length, 3);
+  assert.throws(() => deleteAccountVersion({ versions: [versions[0]] }, "v1"));
+  assert.throws(() => deleteAccountVersion({ ...source, candidate: { basedOnVersionId: "v3" } }, "v3"));
+  assert.throws(() => deleteAccountVersion(source, "missing"));
+  const middle = deleteAccountVersion(source, "v2");
+  assert.equal(middle.goal, source.goal);
+  assert.equal(middle.versions.at(-1).versionId, "v3");
+});
+
+test("deleted version numbers are never reused and draft snapshots remain valid", () => {
+  const initial = record(); initial.candidate = { sourceKey: accountSourceKey(initial), analysis };
+  const v1 = confirmAccountCandidate(initial);
+  const v2 = confirmAccountCandidate(editAccountVersion(v1));
+  const v3 = confirmAccountCandidate(editAccountVersion(v2));
+  const snapshot = accountWritingContext(v3.versions.at(-1));
+  const reduced = deleteAccountVersion(v3, snapshot.versionId);
+  assert.equal(accountProfileProblem(snapshot), "");
+  assert.equal(snapshot.number, 3);
+  assert.equal(reduced.versions.at(-1).number, 2);
+  const v4 = confirmAccountCandidate(editAccountVersion(reduced));
+  assert.equal(v4.versions.at(-1).number, 4);
+  assert.notEqual(v4.versions.at(-1).versionId, snapshot.versionId);
+  assert.deepEqual(snapshot.analysis, accountWritingContext(v3.versions.at(-1)).analysis);
 });

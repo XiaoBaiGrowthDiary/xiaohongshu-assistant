@@ -98,6 +98,16 @@ export function mergeAccountPosts(record, incoming, older = false) {
   return merged.map((note) => ({ ...note, enabled: chosen.has(note.noteId) }));
 }
 
+export function deleteAccountVersion(record, versionId) {
+  const versions = record.versions || [];
+  if (!versions.some((entry) => entry.versionId === versionId)) throw new Error("未找到该档案版本。");
+  if (versions.length < 2) throw new Error("请至少保留一个正式版本。");
+  if (record.candidate?.basedOnVersionId === versionId) throw new Error("请先处理基于该版本的待确认档案。");
+  const remaining = versions.filter((entry) => entry.versionId !== versionId);
+  const latest = remaining.at(-1);
+  return { ...record, versions: remaining, versionHighWater: Math.max(record.versionHighWater || 0, ...versions.map((entry) => entry.number)), ...(versions.at(-1).versionId === versionId ? { goal: latest.goal, facts: latest.facts } : {}) };
+}
+
 export function confirmAccountCandidate(record, now = new Date().toISOString()) {
   if (!accountCandidateCurrent(record)) throw new Error("样本、目标或反馈已变化，或原档案版本不可用，请重新分析或重新打开正式档案编辑后再确认。");
   const candidate = record.candidate, manual = isManualAccountCandidate(candidate);
@@ -109,7 +119,8 @@ export function confirmAccountCandidate(record, now = new Date().toISOString()) 
   for (const key of ["pillars", "voice", "boundaries", "hypotheses"]) if (Array.isArray(analysis[key])) analysis[key] = analysis[key].map((line) => line.trim()).filter(Boolean);
   const portraitError = portraitProblem(analysis);
   if (portraitError) throw new Error(portraitError);
-  const version = { versionId: `account-${record.profile.userId}-${(record.versions?.length || 0) + 1}`, number: (record.versions?.length || 0) + 1, userId: record.profile.userId, nickname: record.profile.nickname, goal, facts, analysis, createdAt: now, sourceKey: candidate.sourceKey, sampleIds: manual ? [...candidate.sampleIds] : accountSamples(record).map((note) => note.noteId), origin: candidate.origin || "analysis", ...(manual ? { basedOnVersionId: candidate.basedOnVersionId } : {}) };
+  const number = Math.max(record.versionHighWater || 0, ...(record.versions || []).map((entry) => entry.number), 0) + 1;
+  const version = { versionId: `account-${record.profile.userId}-${number}`, number, userId: record.profile.userId, nickname: record.profile.nickname, goal, facts, analysis, createdAt: now, sourceKey: candidate.sourceKey, sampleIds: manual ? [...candidate.sampleIds] : accountSamples(record).map((note) => note.noteId), origin: candidate.origin || "analysis", ...(manual ? { basedOnVersionId: candidate.basedOnVersionId } : {}) };
   return { ...record, goal, facts, versions: [...(record.versions || []), version], candidate: null };
 }
 

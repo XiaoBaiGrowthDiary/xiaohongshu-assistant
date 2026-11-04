@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadAccount, saveAccount } from "./accountStore.js";
+import { deleteAccountVersion } from "../shared/account.mjs";
 
 function storage(t) {
   const stores = new Map(); let initialized = false, abortWrite = false;
@@ -48,4 +49,18 @@ test("switching accounts preserves both libraries and failed confirmations leave
   await assert.rejects(saveAccount({ ...second, versions: [...second.versions, { number: 2 }] }), /保存失败/);
   assert.deepEqual(await loadAccount(), second);
   assert.deepEqual(await loadAccount("account-two"), second);
+});
+
+test("version deletion persists its number high-water mark and a failed transaction preserves both account copies", async (t) => {
+  const fixture = storage(t);
+  const source = { ...account("account-one"), candidate: null, versions: [1, 2, 3].map(number => ({ number, versionId: `v${number}`, goal: `g${number}`, facts: `f${number}` })) };
+  await saveAccount(source);
+  const deleted = deleteAccountVersion(source, "v3");
+  fixture.failNext();
+  await assert.rejects(saveAccount(deleted), /保存失败/);
+  assert.deepEqual(await loadAccount(), source);
+  assert.deepEqual(await loadAccount("account-one"), source);
+  await saveAccount(deleted);
+  assert.deepEqual(await loadAccount(), deleted);
+  assert.equal((await loadAccount("account-one")).versionHighWater, 3);
 });
